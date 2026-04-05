@@ -66,7 +66,7 @@ exports.getDepositAccount = async (req, res) => {
    ✅  Request Deposit (Generate Invoice)
 -------------------------------------------------- */
 exports.fundWallet = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   
   try {
     console.log('✅ Deposit request received from user:', req.session.userId);
@@ -215,7 +215,7 @@ exports.fundWallet = async (req, res) => {
 };
 
 exports.requestWithdrawal = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   
   try {
     console.log("Withdrawal request - Session userId:", req.session.userId);
@@ -475,7 +475,7 @@ exports.getUserDeposits = async (req, res) => {
    ✅  Purchase Item (Funds into Escrow)
 -------------------------------------------------- */
 exports.purchase = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   try {
     const { productId } = req.params;
     const buyerId = req.session.userId;
@@ -689,7 +689,7 @@ exports.purchase = async (req, res) => {
 
 // Add this to your walletController.js
 exports.bookService = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   try {
     const { serviceId } = req.params;
     const buyerId = req.session.userId;
@@ -920,7 +920,7 @@ exports.bookService = async (req, res) => {
    ✅  Confirm Received (Release to Seller)
 -------------------------------------------------- */
 exports.confirmReceived = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   try {
     if (!req.session.userId) {
       return res.status(401).json({ 
@@ -1012,7 +1012,7 @@ exports.confirmReceived = async (req, res) => {
    ✅  Raise a Dispute
 -------------------------------------------------- */
 exports.raiseDispute = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   
   try {
     if (!req.session.userId) {
@@ -1124,7 +1124,7 @@ exports.raiseDispute = async (req, res) => {
    ✅  Admin Resolve Dispute
 -------------------------------------------------- */
 exports.resolveDispute = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   try {
     const { escrowId, action } = req.body; // action = "release" or "refund"
 

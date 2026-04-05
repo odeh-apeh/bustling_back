@@ -928,7 +928,7 @@ exports.updateDisputeStatus = async (req, res) => {
 
 // ✅ Resolve Dispute with Escrow Action
 exports.resolveDispute = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   
   try {
     const { disputeId } = req.params;
@@ -1328,7 +1328,7 @@ exports.getAllEscrows = async (req, res) => {
 
 // ✅ Your existing release/refund escrow functions
 exports.releaseEscrow = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   try {
     const { escrowId } = req.body;
 
@@ -1371,7 +1371,7 @@ exports.releaseEscrow = async (req, res) => {
 };
 
 exports.refundEscrow = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   try {
     const { escrowId } = req.body;
 
@@ -1464,7 +1464,7 @@ exports.getEscrowById = async (req, res) => {
 
 // Update escrow status
 exports.updateEscrowStatus = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   
   try {
     const { escrowId } = req.params;
@@ -1674,7 +1674,7 @@ exports.getPendingDeposits = async (req, res) => {
    ✅  ADMIN: Approve/Reject Deposit
 -------------------------------------------------- */
 exports.processDeposit = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   
   try {
     const { deposit_id, action, notes } = req.body; // action: 'approve' or 'reject'
@@ -1855,7 +1855,7 @@ exports.getPendingWithdrawals = async (req, res) => {
    ✅  ADMIN: Process Withdrawal
 -------------------------------------------------- */
 exports.processWithdrawal = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   
   try {
     const { withdrawal_id, action, transaction_reference, notes } = req.body;

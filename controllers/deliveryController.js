@@ -63,7 +63,7 @@ exports.getAvailableDeliveryCompanies = async (req, res) => {
 
 // ✅ Request delivery — with negotiated price
 exports.requestDelivery = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   try {
     const buyerId = req.session.userId;
     const { orderId, deliveryCompanyId, address, agreedPrice } = req.body;
@@ -232,7 +232,7 @@ exports.requestDelivery = async (req, res) => {
 
 // ✅ Confirm delivery (buyer triggers release)
 exports.confirmDelivery = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   try {
     const buyerId = req.session.userId;
     const { orderId } = req.body;

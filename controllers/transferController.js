@@ -68,7 +68,7 @@ exports.lookupUser = async (req, res) => {
    ✅  Initiate Transfer
 -------------------------------------------------- */
 exports.initiateTransfer = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   try {
     if (!req.session || !req.session.userId) {
       return res.status(401).json({ message: "Unauthorized" });

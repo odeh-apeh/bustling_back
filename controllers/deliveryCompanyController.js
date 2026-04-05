@@ -1,7 +1,7 @@
 const db = require("../config/db");
 
 exports.registerDeliveryCompany = async (req, res) => {
-  const client = await db.connect();
+  const client = await db.getConnection();
   
   try {
     await client.query('BEGIN');
