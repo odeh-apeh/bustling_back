@@ -19,7 +19,7 @@ exports.getDashboardStats = async (req, res) => {
       usersCount = usersResult[0]?.count || 0;
       console.log("Users count:", usersCount);
     } catch (err) {
-      console.error("Users query error:", err.message);
+      console.error("Users query error:", err.message)
     }
 
     try {
