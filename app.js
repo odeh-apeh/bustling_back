@@ -12,11 +12,11 @@ const walletController = require("./controllers/walletController");
 const app = express();
 
 // ✅ Middleware
-app.use(cors({
-    origin: ['http://localhost:3000', process.env.FRONTEND_URL], // Add your frontend URLs
-    credentials: true,  // ✅ THIS IS CRITICAL
+app.use(cors({ 
+    origin: '*', // Mobile apps don't have an origin, so allow all
+    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Session-ID'],
 }));
 
 // ⚠️ IMPORTANT: Put webhooks BEFORE express.json()
