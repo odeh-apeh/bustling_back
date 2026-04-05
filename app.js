@@ -12,7 +12,12 @@ const walletController = require("./controllers/walletController");
 const app = express();
 
 // ✅ Middleware
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors({
+    origin: ['http://localhost:3000', process.env.FRONTEND_URL], // Add your frontend URLs
+    credentials: true,  // ✅ THIS IS CRITICAL
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+}));
 
 // ⚠️ IMPORTANT: Put webhooks BEFORE express.json()
 // Because Paystack needs the raw body to compute signature
