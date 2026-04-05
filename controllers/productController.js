@@ -74,11 +74,12 @@ exports.createProduct = async (req, res) => {
 };
 
 // ✅ Get Categories by Type
+// controllers/productController.js - Updated getCategories
 exports.getCategories = async (req, res) => {
   try {
     const { type } = req.query;
     
-    let sql = "SELECT name FROM categories WHERE 1=1";
+    let sql = "SELECT id, name FROM categories WHERE 1=1";
     let params = [];
     let paramCounter = 1;
     
@@ -91,11 +92,14 @@ exports.getCategories = async (req, res) => {
     sql += " ORDER BY name";
     
     const result = await db.query(sql, params);
-    const categories = result.rows.map(row => row.name);
+    const categories = result.rows.map(row => ({
+      id: row.id,
+      name: row.name
+    }));
     
     res.json({
       success: true,
-      categories: ['All', ...categories] // Always include 'All' option
+      categories: [{ id: null, name: 'All' }, ...categories] // 'All' option with null ID
     });
     
   } catch (err) {
@@ -107,6 +111,7 @@ exports.getCategories = async (req, res) => {
   }
 };
 
+// controllers/productController.js - Fixed getAllProducts
 exports.getAllProducts = async (req, res) => {
   try {
     const { type = 'product', category, search, page = 1, limit = 20 } = req.query;
@@ -143,15 +148,34 @@ exports.getAllProducts = async (req, res) => {
     const params = [sanitizedType];
     let paramCounter = 2;
 
-    // Category filter
-    if (category && category !== 'All') {
-      query += ` AND p.category_id = $${paramCounter}`;
-      params.push(category);
-      paramCounter++;
+    // ✅ FIX: Handle category - if it's a name, convert to ID first
+    if (category && category !== 'All' && category !== 'undefined' && category !== 'null') {
+      // Check if category is a number (ID) or string (name)
+      const isNumeric = /^\d+$/.test(category);
+      
+      if (isNumeric) {
+        // Category is an ID (integer)
+        query += ` AND p.category_id = $${paramCounter}`;
+        params.push(parseInt(category));
+        paramCounter++;
+      } else {
+        // Category is a name - get the category ID first
+        const categoryResult = await db.query(
+          "SELECT id FROM categories WHERE name = $1",
+          [category]
+        );
+        
+        if (categoryResult.rows.length > 0) {
+          query += ` AND p.category_id = $${paramCounter}`;
+          params.push(categoryResult.rows[0].id);
+          paramCounter++;
+        }
+        // If category not found, just ignore the filter
+      }
     }
 
     // Search filter
-    if (search) {
+    if (search && search !== 'undefined' && search !== 'null') {
       query += ` AND (p.name ILIKE $${paramCounter} OR p.description ILIKE $${paramCounter})`;
       params.push(`%${search}%`);
       paramCounter++;
@@ -163,9 +187,8 @@ exports.getAllProducts = async (req, res) => {
     query += ` ORDER BY p.created_at DESC LIMIT $${paramCounter} OFFSET $${paramCounter + 1}`;
     params.push(limitNum, offsetNum);
 
-    console.log('🔍 Query:', query);
-    console.log('📋 Params:', params);
-    console.log('🔢 Types:', params.map(p => typeof p));
+    console.log('🔍 Products Query:', query);
+    console.log('📋 Products Params:', params);
 
     const result = await db.query(query, params);
     const products = result.rows;
@@ -174,13 +197,19 @@ exports.getAllProducts = async (req, res) => {
       id: product.id,
       name: product.name,
       description: product.description,
-      price: product.price,
+      price: parseFloat(product.price),
       category_id: product.category_id,
       type: product.type,
       seller_name: product.seller_name,
       seller_id: product.seller_id,
       location: product.seller_location,
-      images: product.images ? JSON.parse(product.images) : [],
+      images: product.images ? (() => {
+        try {
+          return JSON.parse(product.images);
+        } catch (e) {
+          return [];
+        }
+      })() : [],
       created_at: product.created_at
     }));
 
@@ -190,7 +219,8 @@ exports.getAllProducts = async (req, res) => {
       count: formatted.length,
       pagination: {
         page: pageNum,
-        limit: limitNum
+        limit: limitNum,
+        total: formatted.length
       }
     });
 
