@@ -1,53 +1,33 @@
-// BackApp/app.js
+// BackApp/app.js - WITH AUTH MIDDLEWARE
 
 const express = require("express");
 const db = require("./config/db");
 const cors = require("cors");
 const session = require("express-session");
-const pgSession = require('express-pg-session')(session); // ✅ Using express-pg-session
+const pgSession = require('express-pg-session')(session);
 require("dotenv").config();
-
-const walletController = require("./controllers/walletController");
 
 const app = express();
 
-// ✅ CORS Configuration for Mobile App
+// ✅ CORS Configuration
 app.use(cors({ 
-    origin: true, // Allow all origins for mobile app
+    origin: true,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Session-ID'],
 }));
 
-// ⚠️ IMPORTANT: Put webhooks BEFORE express.json()
-// Because Paystack needs the raw body to compute signature
-/*app.post("/api/wallet/webhook", 
-  express.raw({ type: "application/json" }),
-  (req, res) => {
-    const event = req.body.event;
-    
-    if (event.includes('charge.')) {
-      walletController.verifyPayment(req, res);
-    } else if (event.includes('transfer.')) {
-      walletController.verifyTransfer(req, res);
-    } else {
-      res.sendStatus(200);
-    }
-  }
-);
-*/
-
-// ✅ PostgreSQL Session Store with express-pg-session
+// ✅ PostgreSQL Session Store
 const sessionStore = new pgSession({
-    conString: process.env.INTERNAL_DATABASE_URL, // Use your PostgreSQL connection string
+    conString: process.env.INTERNAL_DATABASE_URL,
     tableName: 'session',
     createTableIfMissing: true,
-    ttl: 24 * 60 * 60, // 1 day in seconds
+    ttl: 24 * 60 * 60,
     schemaName: 'public',
-    pruneSessionInterval: 60, // Prune expired sessions every 60 seconds
+    pruneSessionInterval: 60,
 });
 
-// ✅ Session Middleware - MUST come before routes
+// ✅ Session Middleware
 app.use(
     session({
         name: "session_cookie_name",
@@ -56,26 +36,24 @@ app.use(
         resave: false,
         saveUninitialized: false,
         cookie: {
-            maxAge: 1000 * 60 * 60 * 24, // 1 day
+            maxAge: 1000 * 60 * 60 * 24,
             httpOnly: true,
-            secure: false, // Set to false for HTTP (development)
+            secure: false,
             sameSite: 'lax',
             path: '/',
         },
-        // Keep session alive with activity
         rolling: true,
     })
 );
 
-// ✅ Debug middleware to log session (useful for debugging)
+// ✅ Debug middleware
 app.use((req, res, next) => {
-    console.log("🔄 Session Debug - ID:", req.session?.id);
-    console.log("🔄 Session Debug - userId:", req.session?.userId);
-    console.log("🔄 Session Debug - Cookie header:", req.headers.cookie);
+    console.log("🔄 Session ID:", req.session?.id);
+    console.log("🔄 User ID:", req.session?.userId);
     next();
 });
 
-// ✅ JSON parser for all routes (after session middleware)
+// ✅ JSON parser
 app.use(express.json());
 
 // ✅ Import routes
@@ -91,54 +69,74 @@ const notificationRoutes = require("./routes/notifications");
 const transferRoutes = require("./routes/transfer");
 const chatRoutes = require("./routes/chat");
 
+// ✅ Import auth middleware
 const authMiddleware = require("./middlewares/authMiddleware");
 
-// ✅ Use routes
+// ✅ Public routes (no authentication required)
 app.use("/api/auth", authRoutes);
-app.use("/api/wallet", walletRoutes);
-app.use("/api/admin", adminRoutes);
-app.use("/api/products", productRoutes);
-app.use("/api/delivery-company", deliveryCompanyRoutes);
-app.use("/api/delivery", deliveryRoutes);
-app.use("/api/user", userRoutes);
-app.use('/api', orderRoutes);
-app.use("/api/notifications", notificationRoutes);
-app.use("/api/transfer", transferRoutes);
-app.use("/api/chat", chatRoutes);
+app.use("/api/products", productRoutes); // Public product viewing
 
-// ✅ Serve product uploads
+// ✅ Protected routes (authentication required)
+app.use("/api/wallet", authMiddleware, walletRoutes);
+app.use("/api/admin", authMiddleware, adminRoutes);
+app.use("/api/delivery-company", authMiddleware, deliveryCompanyRoutes);
+app.use("/api/delivery", authMiddleware, deliveryRoutes);
+app.use("/api/user", authMiddleware, userRoutes);
+app.use("/api/notifications", authMiddleware, notificationRoutes);
+app.use("/api/transfer", authMiddleware, transferRoutes);
+app.use("/api/chat", authMiddleware, chatRoutes);
+
+// ✅ Order routes with specific auth requirements
+app.use('/api/orders', authMiddleware, orderRoutes);
+app.use('/api', authMiddleware, orderRoutes); // Be careful - this might duplicate routes
+
+// ✅ Serve product uploads (public)
 app.use("/uploads", express.static("uploads"));
 
 // ✅ Cron jobs
 require("./cronJobs");
 
-// ✅ Add API root route
+// ✅ API root route (public)
 app.get('/api', (req, res) => {
+    if (res.headersSent) return;
     res.json({ 
         success: true, 
         message: 'Errandly API is running!',
-        version: '1.0',
-        endpoints: {
-            auth: '/api/auth',
-            user: '/api/user', 
-            wallet: '/api/wallet',
-            products: '/api/products'
-        }
+        version: '1.0'
     });
 });
 
-// ✅ Also add a simple root route
+// ✅ Root route (public)
 app.get('/', (req, res) => {
+    if (res.headersSent) return;
     res.json({ 
         success: true, 
-        message: 'Errandly Backend Server is running!',
-        api: 'Visit /api for available endpoints'
+        message: 'Errandly Backend Server is running!'
     });
 });
 
-// ✅ Error handler fallback
+// ✅ 404 handler - MUST be BEFORE error handler
+app.use((req, res, next) => {
+    if (res.headersSent) return next();
+    res.status(404).json({ 
+        success: false,
+        message: `Cannot ${req.method} ${req.originalUrl} - Route not found`
+    });
+});
+
+// ✅ Error handler - MUST be LAST
 app.use((err, req, res, next) => {
-    console.error("Unhandled Error:", err);
+    // Log the error
+    console.error("❌ Unhandled Error:", err.message);
+    console.error("❌ Error stack:", err.stack);
+    
+    // Check if headers already sent
+    if (res.headersSent) {
+        console.error("Headers already sent, cannot send error response");
+        return next(err);
+    }
+    
+    // Send error response
     res.status(500).json({ 
         success: false,
         message: "Internal Server Error",
@@ -146,19 +144,18 @@ app.use((err, req, res, next) => {
     });
 });
 
-// // ✅ 404 handler for undefined routes
-// app.use('*', (req, res) => {
-//     res.status(404).json({ 
-//         success: false,
-//         message: `Cannot ${req.method} ${req.originalUrl} - Route not found`
-//     });
-// });
-
 // ✅ Server listen
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`✅ Server is running on port ${PORT}`);
     console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔐 Session secure: false (HTTP mode)`);
-    console.log(`📦 Session store: express-pg-session`);
+    console.log(`🔐 Auth middleware enabled on protected routes`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+    console.log('SIGTERM signal received: closing HTTP server');
+    server.close(() => {
+        console.log('HTTP server closed');
+    });
 });

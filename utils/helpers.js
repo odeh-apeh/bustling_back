@@ -1,20 +1,22 @@
 // utils/helpers.js
 const db = require("../config/db");
 
-// ✅ Enhanced notifyUser function - saves to database
+// ✅ Enhanced notifyUser function - saves to database (PostgreSQL version)
 const notifyUser = async (userId, title, message) => {
   try {
     console.log(`🔔 Notification to user ${userId}: ${title} - ${message}`);
     
-    // Save notification to database
-    await db.execute(
-      "INSERT INTO notifications (user_id, message, is_read) VALUES (?, ?, ?)",
-      [userId, `${title}: ${message}`, 0]
+    // Save notification to database - PostgreSQL syntax
+    await db.query(
+      "INSERT INTO notifications (user_id, title, message, is_read, created_at) VALUES ($1, $2, $3, false, NOW())",
+      [userId, title, message]
     );
     
     console.log(`✅ Notification saved to database for user ${userId}`);
+    return true;
   } catch (error) {
     console.error('❌ Error saving notification:', error);
+    return false;
   }
 };
 
