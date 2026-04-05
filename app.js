@@ -4,7 +4,7 @@ const express = require("express");
 const db = require("./config/db");
 const cors = require("cors");
 const session = require("express-session");
-const MySQLStore = require("express-mysql-session")(session);
+const PgSession = require("connect-pg-simple")(session); // ✅ PostgreSQL session store
 require("dotenv").config();
 
 const walletController = require("./controllers/walletController");
@@ -34,19 +34,25 @@ app.use(cors({ origin: true, credentials: true }));
 // ✅ Now JSON parser for all other routes
 app.use(express.json());
 
-// ✅ Session store
-const sessionStore = new MySQLStore({}, db);
+// ✅ PostgreSQL Session Store
+const sessionStore = new PgSession({
+  pool: db.pool, // You need to expose the pool from your db.js
+  tableName: 'session', // Optional: table name for sessions
+  createTableIfMissing: true, // Auto-create session table
+});
 
 app.use(
   session({
     key: "session_cookie_name",
-    secret: process.env.SESSION_SECRET || "supersercret",
+    secret: process.env.SESSION_SECRET || "supersecret",
     store: sessionStore,
     resave: false,
     saveUninitialized: false,
     cookie: {
       maxAge: 1000 * 60 * 60 * 24, // 1 day
       httpOnly: true,
+      secure: process.env.NODE_ENV === "production", // Use secure in production
+      sameSite: 'lax',
     },
   })
 );
@@ -85,7 +91,7 @@ app.use("/uploads", express.static("uploads"));
 // ✅ Cron jobs
 require("./cronJobs");
 
-// ✅ Add API root route (add this before the error handler)
+// ✅ Add API root route
 app.get('/api', (req, res) => {
   res.json({ 
     success: true, 
@@ -109,7 +115,7 @@ app.get('/', (req, res) => {
   });
 });
 
-// ✅ Error handler fallback (this should already be there)
+// ✅ Error handler fallback
 app.use((err, req, res, next) => {
   console.error("Unhandled Error:", err);
   res.status(500).json({ message: "Internal Server Error" });
