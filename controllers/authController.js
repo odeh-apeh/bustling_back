@@ -39,34 +39,32 @@ exports.register = async (req, res) => {
 //The login route - FIXED with session save
 exports.login = async (req, res) => {
     try {
-        const {phone, password} = req.body;
-        if(!phone || !password) {
-            return res.status(400).json({message: "Phone and password required"});
+        const { phone, password } = req.body;
+        
+        if (!phone || !password) {
+            return res.status(400).json({ message: "Phone and password required" });
         }
 
         console.log("🔍 Login attempt for phone:", phone);
 
-        //Find user
+        // Find user
         const result = await db.query("SELECT * FROM users WHERE phone = $1", [phone]);
-        if(result.rows.length === 0) {
-            console.log("❌ User not found:", phone);
-            return res.status(400).json({message: "Invalid credentials"});
+        
+        if (result.rows.length === 0) {
+            return res.status(400).json({ message: "Invalid credentials" });
         }
 
         const user = result.rows[0];
         console.log("✅ User found:", user.id, user.name);
 
-        //compare passwords
+        // Compare passwords
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-            console.log("❌ Password mismatch for user:", phone);
-            return res.status(400).json({message: "Invalid credentials"});
+            return res.status(400).json({ message: "Invalid credentials" });
         }
 
-        //start session - FIX: Set userId and save session
+        // ✅ Set session properties BEFORE saving
         req.session.userId = parseInt(user.id, 10);
-        
-        // Also set user object for convenience
         req.session.user = {
             id: user.id,
             name: user.name,
@@ -75,7 +73,10 @@ exports.login = async (req, res) => {
             role: user.role || 'user'
         };
         
-        // ✅ CRITICAL FIX: Save session explicitly to ensure it's persisted
+        console.log("📝 Session before save:", req.session);
+        console.log("📝 userId before save:", req.session.userId);
+        
+        // ✅ Save session with callback
         req.session.save((err) => {
             if (err) {
                 console.error("❌ Session save error:", err);
@@ -88,19 +89,32 @@ exports.login = async (req, res) => {
             console.log("✅ Session saved successfully. userId:", req.session.userId);
             console.log("✅ Session ID:", req.session.id);
             
+            // ✅ Verify session was saved by checking the database
+            db.query("SELECT sess FROM session WHERE sid = $1", [req.session.id])
+                .then(sessionResult => {
+                    if (sessionResult.rows.length > 0) {
+                        const sessionData = sessionResult.rows[0].sess;
+                        console.log("✅ Session verified in database:", Object.keys(sessionData));
+                        console.log("✅ Session userId in DB:", sessionData.userId);
+                    } else {
+                        console.log("⚠️ Session not found in database!");
+                    }
+                })
+                .catch(err => console.error("Session verification error:", err));
+            
             res.json({ 
                 success: true, 
                 message: "Login successful", 
                 userId: user.id, 
                 phone: user.phone,
                 name: user.name,
-                role: user.role
+                sessionId: req.session.id // Send session ID for mobile app fallback
             });
         });
         
-    } catch (err){
+    } catch (err) {
         console.error("Login error", err);
-        res.status(500).json({message: "Server error"})
+        res.status(500).json({ message: "Server error" });
     }
 };
 

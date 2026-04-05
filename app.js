@@ -41,25 +41,31 @@ app.use(express.json());
 
 // ✅ PostgreSQL Session Store
 const sessionStore = new PgSession({
-  pool: db.pool, // You need to expose the pool from your db.js
-  tableName: 'session', // Optional: table name for sessions
-  createTableIfMissing: true, // Auto-create session table
+    pool: db.pool,
+    tableName: 'session',
+    createTableIfMissing: true,
+    pruneSessionInterval: 60, // Prune expired sessions every 60 seconds
+    errorLog: console.error,
 });
 
+// ✅ Session Middleware - MUST come before routes
 app.use(
-  session({
-    key: "session_cookie_name",
-    secret: process.env.SESSION_SECRET || "supersecret",
-    store: sessionStore,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      maxAge: 1000 * 60 * 60 * 24, // 1 day
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production", // Use secure in production
-      sameSite: 'lax',
-    },
-  })
+    session({
+        name: "session_cookie_name",
+        secret: process.env.SESSION_SECRET || "supersecret",
+        store: sessionStore,
+        resave: false,
+        saveUninitialized: false,
+        cookie: {
+            maxAge: 1000 * 60 * 60 * 24, // 1 day
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production", // true only in production (HTTPS)
+            sameSite: 'lax',
+            path: '/',
+        },
+        // Keep session alive with activity
+        rolling: true,
+    })
 );
 
 // ✅ Import routes
