@@ -451,143 +451,165 @@ exports.getOrderById = async (req, res) => {
 };
 
 // Get orders for current logged-in buyer (uses session)
+// controllers/orderController.js - Fixed getCurrentBuyerOrders
+
+// Get orders for current logged-in buyer (uses session)
 exports.getCurrentBuyerOrders = async (req, res) => {
-  try {
-    console.log('🔍 getCurrentBuyerOrders - Starting');
-    
-    // Use req.user.userId from auth middleware
-    const buyerId = req.user?.userId;
-    
-    if (!buyerId) {
-      console.log('❌ No userId in req.user');
-      return res.status(401).json({
-        success: false,
-        message: "User not authenticated"
-      });
+    try {
+        console.log('🔍 getCurrentBuyerOrders - Starting');
+        
+        // ✅ FIX: Check both req.user and req.session
+        let buyerId = req.user?.userId || req.session?.userId;
+        
+        if (!buyerId) {
+            console.log('❌ No userId found in req.user or req.session');
+            return res.status(401).json({
+                success: false,
+                message: "User not authenticated"
+            });
+        }
+
+        console.log('✅ Using buyerId:', buyerId);
+
+        const { status, page = 1, limit = 20 } = req.query;
+        
+        // Convert to numbers
+        const pageNum = parseInt(page, 10);
+        const limitNum = parseInt(limit, 10);
+        const offsetNum = (pageNum - 1) * limitNum;
+
+        // ✅ FIX: Remove JSON/array operations, use simple text fields
+        let query = `
+            SELECT 
+                o.id,
+                o.buyer_id,
+                o.seller_id,
+                o.product_id,
+                o.type,
+                o.quantity,
+                o.total,
+                o.status,
+                o.created_at,
+                o.shipping_address,
+                o.payment_method,
+                o.notes,
+                o.payment_status,
+                o.delivery_status,
+                o.delivery_company_id,
+                o.delivery_fee,
+                p.name as product_name,
+                p.image_url as product_image,
+                p.price as unit_price,
+                u.name as seller_name,
+                u.location as seller_location,
+                e.status as escrow_status,
+                e.amount as escrow_amount
+            FROM orders o
+            LEFT JOIN products p ON o.product_id = p.id
+            LEFT JOIN users u ON o.seller_id = u.id
+            LEFT JOIN escrow e ON o.id = e.order_id AND e.buyer_id = o.buyer_id
+            WHERE o.buyer_id = $1
+        `;
+
+        const params = [buyerId];
+        let paramCounter = 2;
+
+        if (status && status !== 'all') {
+            query += ` AND o.status = $${paramCounter}`;
+            params.push(status);
+            paramCounter++;
+        }
+
+        query += ` ORDER BY o.created_at DESC LIMIT $${paramCounter} OFFSET $${paramCounter + 1}`;
+        params.push(limitNum, offsetNum);
+
+        console.log('📋 Final query:', query);
+        console.log('📋 Query params:', params);
+
+        const result = await db.query(query, params);
+        const orders = result.rows;
+
+        console.log('📊 Found orders:', orders.length);
+
+        // Format the response
+        const formattedOrders = orders.map(order => {
+            const total = parseFloat(order.total) || 0;
+            const unitPrice = parseFloat(order.unit_price) || 0;
+            const escrowAmount = parseFloat(order.escrow_amount) || total;
+            
+            // Determine if order can be completed
+            const canComplete = order.status === 'completed' && 
+                               order.escrow_status === 'pending';
+            
+            // Determine if dispute can be submitted
+            const canDispute = ['pending', 'paid', 'shipped', 'completed'].includes(order.status) && 
+                              order.escrow_status !== 'released' && 
+                              order.escrow_status !== 'refunded';
+            
+            return {
+                id: order.id,
+                product: {
+                    id: order.product_id,
+                    name: order.product_name || 'Product',
+                    image: order.product_image,
+                    price: unitPrice
+                },
+                seller: {
+                    id: order.seller_id,
+                    name: order.seller_name || 'Seller',
+                    location: order.seller_location || 'Location'
+                },
+                quantity: order.quantity || 1,
+                total: total,
+                status: order.status || 'pending',
+                order_date: order.created_at ? new Date(order.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                shipping_address: order.shipping_address || 'Not specified',
+                type: order.type || 'product',
+                payment_status: order.payment_status || 'pending',
+                payment_method: order.payment_method || null,
+                notes: order.notes || null,
+                
+                // Escrow information
+                escrow: {
+                    status: order.escrow_status || null,
+                    amount: escrowAmount
+                },
+                
+                // Action flags
+                canComplete: canComplete,
+                canDispute: canDispute,
+                
+                // Default delivery info
+                hasDelivery: false,
+                delivery: null
+            };
+        });
+
+        res.json({
+            success: true,
+            orders: formattedOrders,
+            count: formattedOrders.length,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total: formattedOrders.length
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ Error fetching buyer orders:', error);
+        console.error('❌ Error details:', {
+            message: error.message,
+            stack: error.stack
+        });
+        
+        // ✅ Ensure we only send one response
+        if (!res.headersSent) {
+            res.status(500).json({
+                success: false,
+                message: "Error fetching orders",
+                error: error.message
+            });
+        }
     }
-
-    console.log('✅ Using buyerId:', buyerId);
-
-    const { status, page = 1, limit = 20 } = req.query;
-    
-    // Convert to numbers
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
-    const offsetNum = (pageNum - 1) * limitNum;
-
-    // Build the query with proper parameterized LIMIT/OFFSET
-    let query = `
-      SELECT 
-        o.*, 
-        p.name as product_name, 
-        p.image_url as product_image,
-        p.price as unit_price,
-        u.name as seller_name,
-        u.location as seller_location,
-        e.status as escrow_status,
-        e.amount as escrow_amount
-      FROM orders o
-      LEFT JOIN products p ON o.product_id = p.id
-      LEFT JOIN users u ON o.seller_id = u.id
-      LEFT JOIN escrow e ON o.id = e.order_id AND e.buyer_id = o.buyer_id
-      WHERE o.buyer_id = $1
-    `;
-
-    const params = [buyerId];
-    let paramCounter = 2;
-
-    if (status && status !== 'all') {
-      query += ` AND o.status = $${paramCounter}`;
-      params.push(status);
-      paramCounter++;
-    }
-
-    query += ` ORDER BY o.created_at DESC LIMIT $${paramCounter} OFFSET $${paramCounter + 1}`;
-    params.push(limitNum, offsetNum);
-
-    console.log('📋 Final query:', query);
-    console.log('📋 Query params:', params);
-
-    const result = await db.query(query, params);
-    const orders = result.rows;
-
-    console.log('📊 Found orders:', orders.length);
-
-    // Simple response format
-    const formattedOrders = orders.map(order => {
-      const total = parseFloat(order.total) || 0;
-      const unitPrice = parseFloat(order.unit_price) || 0;
-      const escrowAmount = parseFloat(order.escrow_amount) || total;
-      
-      // Determine if order can be completed
-      // Order can be completed if status is 'completed' and escrow is still 'pending'
-      const canComplete = order.status === 'completed' && 
-                         order.escrow_status === 'pending';
-      
-      // Determine if dispute can be submitted
-      const canDispute = ['pending', 'paid', 'shipped', 'completed'].includes(order.status) && 
-                        order.escrow_status !== 'released' && 
-                        order.escrow_status !== 'refunded';
-      
-      return {
-        id: order.id,
-        product: {
-          id: order.product_id,
-          name: order.product_name || 'Product',
-          image: order.product_image,
-          price: unitPrice
-        },
-        seller: {
-          id: order.seller_id,
-          name: order.seller_name || 'Seller',
-          location: order.seller_location || 'Location'
-        },
-        quantity: order.quantity || 1,
-        total: total,
-        status: order.status || 'pending',
-        order_date: order.created_at ? new Date(order.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-        shipping_address: order.shipping_address || 'Not specified',
-        type: order.type || 'product',
-        payment_status: order.payment_status || 'pending',
-        payment_method: order.payment_method || null,
-        notes: order.notes || null,
-        
-        // Escrow information
-        escrow: {
-          status: order.escrow_status || null,
-          amount: escrowAmount
-        },
-        
-        // Action flags
-        canComplete: canComplete,
-        canDispute: canDispute,
-        
-        // Default delivery info
-        hasDelivery: false,
-        delivery: null
-      };
-    });
-
-    res.json({
-      success: true,
-      orders: formattedOrders,
-      count: formattedOrders.length,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total: formattedOrders.length
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error fetching buyer orders:', error);
-    console.error('❌ Error details:', {
-      code: error.code,
-      detail: error.detail
-    });
-    res.status(500).json({
-      success: false,
-      message: "Error fetching orders",
-      error: error.message
-    });
-  }
 };

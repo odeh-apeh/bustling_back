@@ -19,11 +19,9 @@ module.exports = async (req, res, next) => {
         let userId = req.session.userId;
         if (typeof userId === 'string') {
             userId = parseInt(userId, 10);
-            req.session.userId = userId; // Update session to store as number
         }
         
         if (isNaN(userId)) {
-            console.log("❌ Invalid userId:", req.session.userId);
             return res.status(401).json({ 
                 success: false,
                 message: "Invalid session. Please login again." 
@@ -55,8 +53,9 @@ module.exports = async (req, res, next) => {
             });
         }
         
-        // Attach user to request
+        // ✅ Attach user to request
         req.user = user;
+        req.user.userId = user.id; // Ensure userId is set
         req.userId = user.id;
         
         console.log("✅ Auth successful for user:", user.id, user.name);
@@ -70,7 +69,6 @@ module.exports = async (req, res, next) => {
     }
 };
 
-// Admin middleware as a separate function
 module.exports.admin = async (req, res, next) => {
     if (!req.session || !req.session.userId) {
         return res.status(401).json({ 
