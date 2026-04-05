@@ -16,13 +16,15 @@ exports.getAvailableDeliveryCompanies = async (req, res) => {
     console.log('🔍 Fetching all registered delivery companies');
 
     // Get all active delivery companies
-    const [companies] = await db.execute(
+    const result = await db.query(
       `SELECT id, user_id, company_name, coverage_area, state, local_government, phone_number,
               vehicle_type, description, status, created_at
        FROM delivery_companies 
        WHERE status = 'active'
        ORDER BY created_at DESC`
     );
+
+    const companies = result.rows;
 
     console.log('🏢 Found delivery companies:', companies.length);
 
@@ -61,7 +63,7 @@ exports.getAvailableDeliveryCompanies = async (req, res) => {
 
 // ✅ Request delivery — with negotiated price
 exports.requestDelivery = async (req, res) => {
-  const conn = await db.getConnection();
+  const client = await db.connect();
   try {
     const buyerId = req.session.userId;
     const { orderId, deliveryCompanyId, address, agreedPrice } = req.body;
@@ -82,10 +84,10 @@ exports.requestDelivery = async (req, res) => {
 
     const deliveryFee = parseFloat(agreedPrice);
 
-    await conn.beginTransaction();
+    await client.query('BEGIN');
 
     // Get order and seller info with location from users table
-    const [orderRows] = await conn.execute(
+    const orderResult = await client.query(
       `SELECT o.*, 
               p.title as product_title, 
               s.title as service_title,
@@ -100,84 +102,84 @@ exports.requestDelivery = async (req, res) => {
        LEFT JOIN products p ON o.product_id = p.id
        LEFT JOIN services s ON o.service_id = s.id
        LEFT JOIN users buyer ON o.buyer_id = buyer.id
-       WHERE o.id = ? AND o.buyer_id = ?`,
+       WHERE o.id = $1 AND o.buyer_id = $2`,
       [orderId, buyerId]
     );
     
-    if (!orderRows.length) {
-      await conn.rollback();
+    if (orderResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ 
         success: false,
         message: "Order not found" 
       });
     }
 
-    const order = orderRows[0];
+    const order = orderResult.rows[0];
 
     // Get product/service name
     const itemName = order.product_title || order.service_title || "Item";
 
     // Get delivery company
-    const [deliveryRows] = await conn.execute(
-      "SELECT * FROM delivery_companies WHERE id = ? AND status = 'active'",
+    const deliveryResult = await client.query(
+      "SELECT * FROM delivery_companies WHERE id = $1 AND status = 'active'",
       [deliveryCompanyId]
     );
     
-    if (!deliveryRows.length) {
-      await conn.rollback();
+    if (deliveryResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ 
         success: false,
         message: "Delivery company not found" 
       });
     }
 
-    const delivery = deliveryRows[0];
+    const delivery = deliveryResult.rows[0];
 
     // Update order with delivery information
-    await conn.execute(
+    await client.query(
       `UPDATE orders 
-       SET delivery_company_id = ?, 
-           delivery_fee = ?, 
+       SET delivery_company_id = $1, 
+           delivery_fee = $2, 
            delivery_status = 'assigned', 
-           shipping_address = ?,
-           delivery_notes = 'Agreed price: ₦${deliveryFee}'
-       WHERE id = ?`,
-      [deliveryCompanyId, deliveryFee, address, orderId]
+           shipping_address = $3,
+           delivery_notes = $4
+       WHERE id = $5`,
+      [deliveryCompanyId, deliveryFee, address, `Agreed price: ₦${deliveryFee}`, orderId]
     );
 
     // Deduct delivery fee from buyer wallet
-    const [[wallet]] = await conn.execute(
-      "SELECT balance FROM wallets WHERE user_id = ?",
+    const walletResult = await client.query(
+      "SELECT balance FROM wallet WHERE user_id = $1",
       [buyerId]
     );
     
-    if (!wallet || wallet.balance < deliveryFee) {
-      await conn.rollback();
+    if (walletResult.rows.length === 0 || walletResult.rows[0].balance < deliveryFee) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ 
         success: false,
         message: "Insufficient wallet balance for delivery fee" 
       });
     }
 
-    await conn.execute(
-      "UPDATE wallets SET balance = balance - ? WHERE user_id = ?",
+    await client.query(
+      "UPDATE wallet SET balance = balance - $1 WHERE user_id = $2",
       [deliveryFee, buyerId]
     );
 
     // Lock delivery fee in escrow
-    await conn.execute(
+    await client.query(
       `INSERT INTO escrow (buyer_id, seller_id, order_id, amount, status, type)
-       VALUES (?, ?, ?, ?, 'held', 'delivery')`,
+       VALUES ($1, $2, $3, $4, 'held', 'delivery')`,
       [buyerId, delivery.user_id, orderId, deliveryFee]
     );
 
     // Create a delivery record (if you have a deliveries table)
     // If you don't have a deliveries table, this can be skipped
     try {
-      await conn.execute(
+      await client.query(
         `INSERT INTO deliveries (order_id, delivery_company_id, buyer_id, 
                                 seller_id, delivery_fee, status, shipping_address)
-         VALUES (?, ?, ?, ?, ?, 'assigned', ?)`,
+         VALUES ($1, $2, $3, $4, $5, 'assigned', $6)`,
         [orderId, deliveryCompanyId, buyerId, order.seller_id, deliveryFee, address]
       );
     } catch (deliveryError) {
@@ -207,7 +209,7 @@ exports.requestDelivery = async (req, res) => {
       `Your order #${orderId} is being processed. ${delivery.company_name} will deliver "${itemName}" to you soon.`
     );
 
-    await conn.commit();
+    await client.query('COMMIT');
     
     res.status(200).json({
       success: true,
@@ -217,20 +219,20 @@ exports.requestDelivery = async (req, res) => {
       deliveryCompany: delivery.company_name
     });
   } catch (err) {
-    await conn.rollback();
+    await client.query('ROLLBACK');
     console.error("❌ Delivery request error:", err);
     res.status(500).json({ 
       success: false,
       message: "Server error" 
     });
   } finally {
-    conn.release();
+    client.release();
   }
 };
 
 // ✅ Confirm delivery (buyer triggers release)
 exports.confirmDelivery = async (req, res) => {
-  const conn = await db.getConnection();
+  const client = await db.connect();
   try {
     const buyerId = req.session.userId;
     const { orderId } = req.body;
@@ -249,30 +251,30 @@ exports.confirmDelivery = async (req, res) => {
       });
     }
 
-    await conn.beginTransaction();
+    await client.query('BEGIN');
 
     // Get escrow for this order
-    const [escrowRows] = await conn.execute(
+    const escrowResult = await client.query(
       `SELECT e.*, dc.user_id as delivery_user_id 
        FROM escrow e
        LEFT JOIN orders o ON e.order_id = o.id
        LEFT JOIN delivery_companies dc ON o.delivery_company_id = dc.id
-       WHERE e.order_id = ? AND e.status = 'held' AND e.type = 'delivery'`,
+       WHERE e.order_id = $1 AND e.status = 'held' AND e.type = 'delivery'`,
       [orderId]
     );
     
-    if (!escrowRows.length) {
-      await conn.rollback();
+    if (escrowResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ 
         success: false,
         message: "Escrow record not found for this order" 
       });
     }
 
-    const escrow = escrowRows[0];
+    const escrow = escrowResult.rows[0];
 
     if (!escrow.delivery_user_id) {
-      await conn.rollback();
+      await client.query('ROLLBACK');
       return res.status(404).json({ 
         success: false,
         message: "Delivery company not found for this order" 
@@ -280,27 +282,27 @@ exports.confirmDelivery = async (req, res) => {
     }
 
     // Release funds to delivery agent
-    await conn.execute(
-      "UPDATE wallets SET balance = balance + ? WHERE user_id = ?",
-      [escrow.amount, escrow.delivery_user_id]
+    await client.query(
+      "UPDATE wallet SET balance = balance + $1 WHERE user_id = $2",
+      [parseFloat(escrow.amount), escrow.delivery_user_id]
     );
 
     // Update escrow status
-    await conn.execute(
-      "UPDATE escrow SET status = 'released', updated_at = NOW() WHERE id = ?",
+    await client.query(
+      "UPDATE escrow SET status = 'released', updated_at = NOW() WHERE id = $1",
       [escrow.id]
     );
     
     // Update order delivery status
-    await conn.execute(
-      "UPDATE orders SET delivery_status = 'delivered', updated_at = NOW() WHERE id = ?",
+    await client.query(
+      "UPDATE orders SET delivery_status = 'delivered', updated_at = NOW() WHERE id = $1",
       [orderId]
     );
     
     // Update deliveries table if it exists
     try {
-      await conn.execute(
-        "UPDATE deliveries SET status = 'delivered', delivered_at = NOW() WHERE order_id = ?",
+      await client.query(
+        "UPDATE deliveries SET status = 'delivered', delivered_at = NOW() WHERE order_id = $1",
         [orderId]
       );
     } catch (error) {
@@ -322,33 +324,33 @@ exports.confirmDelivery = async (req, res) => {
     );
 
     // Notify seller
-    const [orderRows] = await conn.execute(
-      "SELECT seller_id FROM orders WHERE id = ?",
+    const orderResult = await client.query(
+      "SELECT seller_id FROM orders WHERE id = $1",
       [orderId]
     );
     
-    if (orderRows.length) {
+    if (orderResult.rows.length > 0) {
       await notifyUser(
-        orderRows[0].seller_id,
+        orderResult.rows[0].seller_id,
         "Delivery Completed",
         `Delivery for order #${orderId} has been completed successfully.`
       );
     }
 
-    await conn.commit();
+    await client.query('COMMIT');
     
     res.status(200).json({ 
       success: true,
       message: "Delivery confirmed and funds released." 
     });
   } catch (err) {
-    await conn.rollback();
+    await client.query('ROLLBACK');
     console.error("❌ Confirm delivery error:", err);
     res.status(500).json({ 
       success: false,
       message: "Server error" 
     });
   } finally {
-    conn.release();
+    client.release();
   }
 };

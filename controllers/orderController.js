@@ -10,7 +10,7 @@ exports.createOrder = async (req, res) => {
       service_id,
       type,
       quantity = 1,
-      total, // Changed from total_price to total
+      total,
       shipping_address,
       payment_method,
       notes
@@ -35,34 +35,37 @@ exports.createOrder = async (req, res) => {
     const query = `
       INSERT INTO orders 
       (buyer_id, seller_id, product_id, service_id, type, quantity, total, shipping_address, payment_method, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING id
     `;
 
-    const [result] = await db.execute(query, [
+    const result = await db.query(query, [
       buyer_id,
       seller_id,
       product_id || null,
       service_id || null,
       type,
       quantity,
-      total, // Changed from total_price to total
+      total,
       shipping_address,
       payment_method,
       notes
     ]);
 
+    const orderId = result.rows[0].id;
+
     res.status(201).json({
       success: true,
       message: 'Order created successfully',
       data: {
-        id: result.insertId,
+        id: orderId,
         buyer_id,
         seller_id,
         product_id,
         service_id,
         type,
         quantity,
-        total // Changed from total_price to total
+        total
       }
     });
   } catch (error) {
@@ -75,9 +78,7 @@ exports.createOrder = async (req, res) => {
   }
 };
 
-
 // Get pending orders for a seller
-// Get pending orders for a seller - FIX order_date issue
 exports.getPendingOrders = async (req, res) => {
   try {
     const { seller_id } = req.query;
@@ -98,11 +99,12 @@ exports.getPendingOrders = async (req, res) => {
       FROM orders o
       LEFT JOIN products p ON o.product_id = p.id
       LEFT JOIN users u ON o.buyer_id = u.id
-      WHERE o.seller_id = ? AND o.status = 'pending'
-      ORDER BY o.created_at DESC  -- ✅ FIXED: Use created_at
+      WHERE o.seller_id = $1 AND o.status = 'pending'
+      ORDER BY o.created_at DESC
     `;
 
-    const [orders] = await db.execute(query, [parseInt(seller_id, 10)]);
+    const result = await db.query(query, [parseInt(seller_id, 10)]);
+    const orders = result.rows;
 
     res.json({
       success: true,
@@ -119,7 +121,7 @@ exports.getPendingOrders = async (req, res) => {
   }
 };
 
-// Unified seller orders function - FIX order_date issue
+// Unified seller orders function
 exports.getSellerOrders = async (req, res) => {
   try {
     const { seller_id } = req.params;
@@ -142,20 +144,23 @@ exports.getSellerOrders = async (req, res) => {
       FROM orders o
       LEFT JOIN products p ON o.product_id = p.id
       LEFT JOIN users u ON o.buyer_id = u.id
-      WHERE o.seller_id = ?
+      WHERE o.seller_id = $1
     `;
 
-    const params = [parseInt(seller_id, 10)]; // ✅ Ensure number
+    const params = [parseInt(seller_id, 10)];
+    let paramCounter = 2;
 
     if (status && status !== 'all') {
-      query += ' AND o.status = ?';
+      query += ` AND o.status = $${paramCounter}`;
       params.push(status);
+      paramCounter++;
     }
 
-    query += ' ORDER BY o.created_at DESC LIMIT ? OFFSET ?'; // ✅ FIXED: Use created_at
-    params.push(limitNum, offsetNum); // ✅ Ensure numbers
+    query += ` ORDER BY o.created_at DESC LIMIT $${paramCounter} OFFSET $${paramCounter + 1}`;
+    params.push(limitNum, offsetNum);
 
-    const [orders] = await db.execute(query, params);
+    const result = await db.query(query, params);
+    const orders = result.rows;
 
     // Format the response
     const formattedOrders = orders.map(order => ({
@@ -176,7 +181,7 @@ exports.getSellerOrders = async (req, res) => {
       quantity: order.quantity,
       total: parseFloat(order.total_price || order.total),
       status: order.status,
-      order_date: order.created_at, // ✅ Use created_at directly
+      order_date: order.created_at,
       shipping_address: order.shipping_address,
       payment_method: order.payment_method,
       notes: order.notes,
@@ -204,7 +209,6 @@ exports.getSellerOrders = async (req, res) => {
 };
 
 // Get orders for a buyer
-// Get orders for a specific buyer
 exports.getBuyerOrders = async (req, res) => {
   try {
     let { buyer_id } = req.params;
@@ -228,7 +232,7 @@ exports.getBuyerOrders = async (req, res) => {
     const limitNum = parseInt(limit, 10);
     const offsetNum = (pageNum - 1) * limitNum;
 
-    // Build query WITHOUT LIMIT/OFFSET as parameters
+    // Build query with proper parameterized LIMIT/OFFSET
     let query = `
       SELECT 
         o.*, 
@@ -243,23 +247,26 @@ exports.getBuyerOrders = async (req, res) => {
       LEFT JOIN products p ON o.product_id = p.id
       LEFT JOIN users u ON o.seller_id = u.id
       LEFT JOIN escrow e ON o.id = e.order_id AND e.buyer_id = o.buyer_id
-      WHERE o.buyer_id = ?
+      WHERE o.buyer_id = $1
     `;
 
     const params = [buyer_id];
+    let paramCounter = 2;
 
     if (status && status !== 'all') {
-      query += ' AND o.status = ?';
+      query += ` AND o.status = $${paramCounter}`;
       params.push(status);
+      paramCounter++;
     }
 
-    query += ' ORDER BY o.created_at DESC';
-    query += ` LIMIT ${limitNum} OFFSET ${offsetNum}`;
+    query += ` ORDER BY o.created_at DESC LIMIT $${paramCounter} OFFSET $${paramCounter + 1}`;
+    params.push(limitNum, offsetNum);
 
     console.log('📋 Query for getBuyerOrders:', query);
     console.log('📋 Query params:', params);
 
-    const [orders] = await db.execute(query, params);
+    const result = await db.query(query, params);
+    const orders = result.rows;
 
     // Format the response
     const formattedOrders = orders.map(order => {
@@ -333,13 +340,13 @@ exports.updateOrderStatus = async (req, res) => {
 
     const query = `
       UPDATE orders 
-      SET status = ?, updated_at = CURRENT_TIMESTAMP 
-      WHERE id = ?
+      SET status = $1, updated_at = CURRENT_TIMESTAMP 
+      WHERE id = $2
     `;
 
-    const [result] = await db.execute(query, [status, order_id]);
+    const result = await db.query(query, [status, order_id]);
 
-    if (result.affectedRows === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({
         success: false,
         message: 'Order not found'
@@ -383,19 +390,19 @@ exports.getOrderById = async (req, res) => {
       LEFT JOIN products p ON o.product_id = p.id
       LEFT JOIN users seller ON o.seller_id = seller.id
       LEFT JOIN users buyer ON o.buyer_id = buyer.id
-      WHERE o.id = ?
+      WHERE o.id = $1
     `;
 
-    const [orders] = await db.execute(query, [order_id]);
+    const result = await db.query(query, [order_id]);
 
-    if (orders.length === 0) {
+    if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Order not found'
       });
     }
 
-    const order = orders[0];
+    const order = result.rows[0];
     
     // Format the order
     const formattedOrder = {
@@ -443,8 +450,6 @@ exports.getOrderById = async (req, res) => {
   }
 };
 
-
-// Get orders for current logged-in buyer (uses session)
 // Get orders for current logged-in buyer (uses session)
 exports.getCurrentBuyerOrders = async (req, res) => {
   try {
@@ -470,7 +475,7 @@ exports.getCurrentBuyerOrders = async (req, res) => {
     const limitNum = parseInt(limit, 10);
     const offsetNum = (pageNum - 1) * limitNum;
 
-    // Build the query WITHOUT LIMIT/OFFSET as parameters
+    // Build the query with proper parameterized LIMIT/OFFSET
     let query = `
       SELECT 
         o.*, 
@@ -485,25 +490,26 @@ exports.getCurrentBuyerOrders = async (req, res) => {
       LEFT JOIN products p ON o.product_id = p.id
       LEFT JOIN users u ON o.seller_id = u.id
       LEFT JOIN escrow e ON o.id = e.order_id AND e.buyer_id = o.buyer_id
-      WHERE o.buyer_id = ?
+      WHERE o.buyer_id = $1
     `;
 
     const params = [buyerId];
+    let paramCounter = 2;
 
     if (status && status !== 'all') {
-      query += ' AND o.status = ?';
+      query += ` AND o.status = $${paramCounter}`;
       params.push(status);
+      paramCounter++;
     }
 
-    query += ' ORDER BY o.created_at DESC';
-    
-    // Add LIMIT and OFFSET directly (not as parameters)
-    query += ` LIMIT ${limitNum} OFFSET ${offsetNum}`;
+    query += ` ORDER BY o.created_at DESC LIMIT $${paramCounter} OFFSET $${paramCounter + 1}`;
+    params.push(limitNum, offsetNum);
 
     console.log('📋 Final query:', query);
     console.log('📋 Query params:', params);
 
-    const [orders] = await db.execute(query, params);
+    const result = await db.query(query, params);
+    const orders = result.rows;
 
     console.log('📊 Found orders:', orders.length);
 
@@ -576,15 +582,12 @@ exports.getCurrentBuyerOrders = async (req, res) => {
     console.error('❌ Error fetching buyer orders:', error);
     console.error('❌ Error details:', {
       code: error.code,
-      errno: error.errno,
-      sqlState: error.sqlState,
-      sqlMessage: error.sqlMessage
+      detail: error.detail
     });
     res.status(500).json({
       success: false,
       message: "Error fetching orders",
-      error: error.message,
-      sqlError: error.sqlMessage
+      error: error.message
     });
   }
 };

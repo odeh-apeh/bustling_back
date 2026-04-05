@@ -4,7 +4,6 @@ const fs = require("fs");
 const path = require("path");
 const { notifyUser } = require("../utils/helpers");
 
-// ✅ Create Product or Service
 // ✅ Create Product or Service (UPDATED with attributes)
 exports.createProduct = async (req, res) => {
   try {
@@ -21,19 +20,19 @@ exports.createProduct = async (req, res) => {
     }
 
     // Category → return numeric ID
-    let categoryId;
-    const [catCheck] = await db.execute(
-      "SELECT id FROM categories WHERE name = ?",
+    const catCheck = await db.query(
+      "SELECT id FROM categories WHERE name = $1",
       [category]
     );
 
-    if (catCheck.length > 0) {
-      categoryId = catCheck[0].id;
+    let categoryId;
+    if (catCheck.rows.length > 0) {
+      categoryId = catCheck.rows[0].id;
     } else {
-      const [fallback] = await db.execute(
+      const fallback = await db.query(
         "SELECT id FROM categories WHERE name = 'Others'"
       );
-      categoryId = fallback[0]?.id || null;
+      categoryId = fallback.rows[0]?.id || null;
     }
 
     let attributesData = {};
@@ -47,19 +46,19 @@ exports.createProduct = async (req, res) => {
       }
     }
 
-   await db.execute(
-  "INSERT INTO products (seller_id, name, description, price, category_id, images, type, attributes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-  [
-    sellerId,
-    title,
-    description,
-    price,
-    categoryId,
-    JSON.stringify(images),
-    itemType,
-    JSON.stringify(attributesData)
-  ]
-);
+    await db.query(
+      "INSERT INTO products (seller_id, name, description, price, category_id, images, type, attributes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+      [
+        sellerId,
+        title,
+        description,
+        price,
+        categoryId,
+        JSON.stringify(images),
+        itemType,
+        JSON.stringify(attributesData)
+      ]
+    );
 
     notifyUser(
       sellerId,
@@ -74,7 +73,6 @@ exports.createProduct = async (req, res) => {
   }
 };
 
-
 // ✅ Get Categories by Type
 exports.getCategories = async (req, res) => {
   try {
@@ -82,16 +80,18 @@ exports.getCategories = async (req, res) => {
     
     let sql = "SELECT name FROM categories WHERE 1=1";
     let params = [];
+    let paramCounter = 1;
     
     if (type && ['product', 'service'].includes(type.toLowerCase())) {
-      sql += " AND type = ?";
+      sql += ` AND type = $${paramCounter}`;
       params.push(type.toLowerCase());
+      paramCounter++;
     }
     
     sql += " ORDER BY name";
     
-    const [rows] = await db.execute(sql, params);
-    const categories = rows.map(row => row.name);
+    const result = await db.query(sql, params);
+    const categories = result.rows.map(row => row.name);
     
     res.json({
       success: true,
@@ -106,7 +106,6 @@ exports.getCategories = async (req, res) => {
     });
   }
 };
-
 
 exports.getAllProducts = async (req, res) => {
   try {
@@ -129,8 +128,8 @@ exports.getAllProducts = async (req, res) => {
         p.price,
         p.image_url,
         p.created_at,
-        CAST(p.images AS CHAR) AS images,
-        CAST(p.attributes AS CHAR) AS attributes,
+        p.images::text AS images,
+        p.attributes::text AS attributes,
         p.location,
         p.type,
         u.name AS seller_name,
@@ -138,31 +137,38 @@ exports.getAllProducts = async (req, res) => {
         u.id AS seller_id
       FROM products p
       LEFT JOIN users u ON p.seller_id = u.id
-      WHERE p.type = ?
+      WHERE p.type = $1
     `;
 
     const params = [sanitizedType];
+    let paramCounter = 2;
 
     // Category filter
     if (category && category !== 'All') {
-      query += ' AND p.category_id = ?';
+      query += ` AND p.category_id = $${paramCounter}`;
       params.push(category);
+      paramCounter++;
     }
 
     // Search filter
     if (search) {
-      query += ' AND (p.name LIKE ? OR p.description LIKE ?)';
-      params.push(`%${search}%`, `%${search}%`);
+      query += ` AND (p.name ILIKE $${paramCounter} OR p.description ILIKE $${paramCounter})`;
+      params.push(`%${search}%`);
+      paramCounter++;
+      params.push(`%${search}%`);
+      paramCounter++;
     }
 
-    // FINAL ORDER BY + LIMIT/OFFSET (no placeholders)
-    query += ` ORDER BY p.created_at DESC LIMIT ${limitNum} OFFSET ${offsetNum}`;
+    // FINAL ORDER BY + LIMIT/OFFSET
+    query += ` ORDER BY p.created_at DESC LIMIT $${paramCounter} OFFSET $${paramCounter + 1}`;
+    params.push(limitNum, offsetNum);
 
     console.log('🔍 Query:', query);
     console.log('📋 Params:', params);
     console.log('🔢 Types:', params.map(p => typeof p));
 
-    const [products] = await db.execute(query, params);
+    const result = await db.query(query, params);
+    const products = result.rows;
 
     const formatted = products.map(product => ({
       id: product.id,
@@ -198,11 +204,10 @@ exports.getAllProducts = async (req, res) => {
   }
 };
 
-
 // ✅ Get Product/Service by ID (UPDATED with attributes)
 exports.getProductById = async (req, res) => {
   try {
-    const [rows] = await db.execute(`
+    const result = await db.query(`
       SELECT p.*, 
              c.name as category_name, 
              c.type as category_type,
@@ -212,12 +217,14 @@ exports.getProductById = async (req, res) => {
       FROM products p 
       LEFT JOIN categories c ON p.category_id = c.id
       LEFT JOIN users u ON p.seller_id = u.id 
-      WHERE p.id = ?
+      WHERE p.id = $1
     `, [req.params.id]);
     
-    if (rows.length === 0) return res.status(404).json({ message: "Item not found" });
+    if (result.rows.length === 0) return res.status(404).json({ message: "Item not found" });
 
-    const item = rows[0];
+    const item = result.rows[0];
+    let categoryAttributes = [];
+    
     if (item.images) {
       try {
         // Remove unexpected characters if present
@@ -253,15 +260,15 @@ exports.getProductById = async (req, res) => {
           console.error('Error parsing category attributes:', error, 'Value:', item.category_attributes);
           categoryAttributes = [];
       }
-  }
+    }
     
     // Return enhanced response
     res.json({
       id: item.id,
-      title: item.title,
+      title: item.name,
       description: item.description,
       price: item.price,
-      category: item.category,
+      category: item.category_name,
       type: item.type,
       images: item.images,
       seller_name: item.seller_name,
@@ -281,20 +288,19 @@ exports.getProductById = async (req, res) => {
   }
 };
 
-// ✅ Update Product/Service
 // ✅ Update Product/Service (UPDATED with attributes)
 exports.updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, price, category, type, attributes } = req.body; // Added attributes
+    const { title, description, price, category, type, attributes } = req.body;
     const sellerId = req.session.userId;
 
-    const [rows] = await db.execute("SELECT * FROM products WHERE id=? AND seller_id=?", [id, sellerId]);
-    if (rows.length === 0) {
+    const result = await db.query("SELECT * FROM products WHERE id=$1 AND seller_id=$2", [id, sellerId]);
+    if (result.rows.length === 0) {
       return res.status(404).json({ message: "Item not found or not yours" });
     }
 
-    const product = rows[0];
+    const product = result.rows[0];
     let images = product.images ? JSON.parse(product.images) : [];
 
     if (req.files && req.files.length > 0) {
@@ -323,9 +329,9 @@ exports.updateProduct = async (req, res) => {
       }
     }
 
-    await db.execute(
-      "UPDATE products SET title=?, description=?, price=?, category=?, images=?, type=?, attributes=? WHERE id=? AND seller_id=?",
-      [title, description, price, finalCategory, JSON.stringify(images), itemType, JSON.stringify(attributesData), id, sellerId] // Added attributes
+    await db.query(
+      "UPDATE products SET name=$1, description=$2, price=$3, category_id=$4, images=$5, type=$6, attributes=$7 WHERE id=$8 AND seller_id=$9",
+      [title, description, price, finalCategory, JSON.stringify(images), itemType, JSON.stringify(attributesData), id, sellerId]
     );
 
     res.json({ message: `${itemType === "service" ? "Service" : "Product"} updated successfully` });
@@ -341,12 +347,12 @@ exports.deleteProduct = async (req, res) => {
     const { id } = req.params;
     const sellerId = req.session.userId;
 
-    const [rows] = await db.execute("SELECT * FROM products WHERE id=? AND seller_id=?", [id, sellerId]);
-    if (rows.length === 0) {
+    const result = await db.query("SELECT * FROM products WHERE id=$1 AND seller_id=$2", [id, sellerId]);
+    if (result.rows.length === 0) {
       return res.status(404).json({ message: "Item not found or not yours" });
     }
 
-    const product = rows[0];
+    const product = result.rows[0];
     const images = product.images ? JSON.parse(product.images) : [];
 
     images.forEach((img) => {
@@ -354,7 +360,7 @@ exports.deleteProduct = async (req, res) => {
       if (fs.existsSync(imgPath)) fs.unlinkSync(imgPath);
     });
 
-    await db.execute("DELETE FROM products WHERE id=? AND seller_id=?", [id, sellerId]);
+    await db.query("DELETE FROM products WHERE id=$1 AND seller_id=$2", [id, sellerId]);
 
     res.json({ message: "Item deleted successfully" });
   } catch (err) {
@@ -363,7 +369,6 @@ exports.deleteProduct = async (req, res) => {
   }
 };
 
-// In your productController.js
 // ✅ Get Seller's Products (Fixed)
 exports.getMyProducts = async (req, res) => {
   try {
@@ -372,7 +377,7 @@ exports.getMyProducts = async (req, res) => {
     console.log('🔍 Fetching products for seller:', sellerId);
     
     // Use ONLY columns that exist in your database
-    const [products] = await db.execute(
+    const result = await db.query(
       `SELECT 
         p.id,
         p.seller_id,
@@ -384,13 +389,13 @@ exports.getMyProducts = async (req, res) => {
         p.type,
         p.category_id,
         p.created_at
-        -- Only include columns that actually exist in your products table
-        -- Remove: p.status, p.views, p.orders if they don't exist
        FROM products p 
-       WHERE p.seller_id = ? 
+       WHERE p.seller_id = $1 
        ORDER BY p.created_at DESC`,
       [sellerId]
     );
+
+    const products = result.rows;
 
     console.log('📊 Raw database results:', products);
     console.log('🔍 First product raw data:', products[0]);
@@ -472,25 +477,27 @@ exports.getCategoryAttributes = async (req, res) => {
   try {
     const { category_id } = req.params;
     
-    const [categories] = await db.execute(
-      'SELECT id, name, type, attributes FROM categories WHERE id = ?',
+    const result = await db.query(
+      'SELECT id, name, type, attributes FROM categories WHERE id = $1',
       [category_id]
     );
     
-    if (categories.length === 0) {
+    if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Category not found'
       });
     }
     
-    const category = categories[0];
+    const category = result.rows[0];
     
     // Parse attributes
     let attributes = [];
     if (category.attributes) {
       try {
-        attributes = JSON.parse(category.attributes);
+        attributes = typeof category.attributes === 'string' 
+          ? JSON.parse(category.attributes) 
+          : category.attributes;
       } catch (error) {
         console.error('Error parsing category attributes:', error);
         attributes = [];
@@ -522,10 +529,12 @@ exports.getAllCategoriesWithAttributes = async (req, res) => {
     
     let query = 'SELECT id, name, type, attributes FROM categories';
     const params = [];
+    let paramCounter = 1;
     
     if (type) {
-      query += ' WHERE type = ?';
+      query += ` WHERE type = $${paramCounter}`;
       params.push(type);
+      paramCounter++;
     }
     
     query += ' ORDER BY name';
@@ -533,7 +542,8 @@ exports.getAllCategoriesWithAttributes = async (req, res) => {
     console.log('🔍 Executing query:', query);
     console.log('📋 Query params:', params);
     
-    const [categories] = await db.execute(query, params);
+    const result = await db.query(query, params);
+    const categories = result.rows;
     
     console.log('📦 Raw categories from DB:', JSON.stringify(categories, null, 2));
     
@@ -548,7 +558,7 @@ exports.getAllCategoriesWithAttributes = async (req, res) => {
         try {
           // Check if it's already an object/array
           if (typeof category.attributes === 'object') {
-            // It's already parsed by MySQL driver
+            // It's already parsed by PostgreSQL driver
             attributes = Array.isArray(category.attributes) ? category.attributes : [];
           } else if (typeof category.attributes === 'string') {
             // It's still a string, parse it

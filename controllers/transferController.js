@@ -20,7 +20,7 @@ exports.lookupUser = async (req, res) => {
     }
 
     // Find user by phone (wallet address)
-    const [users] = await db.execute(
+    const result = await db.query(
       `SELECT 
         u.id, 
         u.name, 
@@ -29,9 +29,11 @@ exports.lookupUser = async (req, res) => {
         w.balance
        FROM users u 
        LEFT JOIN wallet w ON u.id = w.user_id 
-       WHERE u.phone = ? AND u.id != ?`,
+       WHERE u.phone = $1 AND u.id != $2`,
       [phone, req.session.userId]
     );
+
+    const users = result.rows;
 
     if (users.length === 0) {
       return res.status(404).json({
@@ -66,7 +68,7 @@ exports.lookupUser = async (req, res) => {
    ✅  Initiate Transfer
 -------------------------------------------------- */
 exports.initiateTransfer = async (req, res) => {
-  const connection = await db.getConnection();
+  const client = await db.connect();
   try {
     if (!req.session || !req.session.userId) {
       return res.status(401).json({ message: "Unauthorized" });
@@ -89,24 +91,24 @@ exports.initiateTransfer = async (req, res) => {
       });
     }
 
-    await connection.beginTransaction();
+    await client.query('BEGIN');
 
     // Check sender balance
-    const [senderWallet] = await connection.execute(
-      "SELECT * FROM wallet WHERE user_id = ?",
+    const senderWalletResult = await client.query(
+      "SELECT * FROM wallet WHERE user_id = $1",
       [senderId]
     );
 
-    if (senderWallet.length === 0) {
-      await connection.rollback();
+    if (senderWalletResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({
         success: false,
         message: "Sender wallet not found"
       });
     }
 
-    if (senderWallet[0].balance < amount) {
-      await connection.rollback();
+    if (parseFloat(senderWalletResult.rows[0].balance) < amount) {
+      await client.query('ROLLBACK');
       return res.status(400).json({
         success: false,
         message: "Insufficient balance"
@@ -114,29 +116,29 @@ exports.initiateTransfer = async (req, res) => {
     }
 
     // Find recipient
-    const [recipients] = await connection.execute(
-      "SELECT id FROM users WHERE phone = ? AND id != ?",
+    const recipientsResult = await client.query(
+      "SELECT id FROM users WHERE phone = $1 AND id != $2",
       [recipientPhone, senderId]
     );
 
-    if (recipients.length === 0) {
-      await connection.rollback();
+    if (recipientsResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({
         success: false,
         message: "Recipient not found"
       });
     }
 
-    const recipientId = recipients[0].id;
+    const recipientId = recipientsResult.rows[0].id;
 
     // Check if recipient has wallet
-    const [recipientWallet] = await connection.execute(
-      "SELECT id FROM wallet WHERE user_id = ?",
+    const recipientWalletResult = await client.query(
+      "SELECT id FROM wallet WHERE user_id = $1",
       [recipientId]
     );
 
-    if (recipientWallet.length === 0) {
-      await connection.rollback();
+    if (recipientWalletResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({
         success: false,
         message: "Recipient wallet not found"
@@ -144,47 +146,48 @@ exports.initiateTransfer = async (req, res) => {
     }
 
     // Deduct from sender
-    await connection.execute(
-      "UPDATE wallet SET balance = balance - ? WHERE user_id = ?",
+    await client.query(
+      "UPDATE wallet SET balance = balance - $1 WHERE user_id = $2",
       [amount, senderId]
     );
 
     // Add to recipient
-    await connection.execute(
-      "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
+    await client.query(
+      "UPDATE wallet SET balance = balance + $1 WHERE user_id = $2",
       [amount, recipientId]
     );
 
     // Create transfer record
-    const [transferResult] = await connection.execute(
+    const transferResult = await client.query(
       `INSERT INTO transfers 
        (sender_id, recipient_id, amount, note, status, created_at) 
-       VALUES (?, ?, ?, ?, 'completed', NOW())`,
+       VALUES ($1, $2, $3, $4, 'completed', NOW())
+       RETURNING id`,
       [senderId, recipientId, amount, note || null]
     );
 
-    const transferId = transferResult.insertId;
+    const transferId = transferResult.rows[0].id;
 
-    // Log transaction for sender (debit)
-    /*await connection.execute(
+    // Log transaction for sender (debit) - commented out as in original
+    /*await client.query(
       `INSERT INTO transactions 
        (sender_id, receiver_id, amount, type, status, transfer_id, created_at) 
-       VALUES (?, ?, ?, 'transfer_debit', 'completed', ?, NOW())`,
+       VALUES ($1, $2, $3, 'transfer_debit', 'completed', $4, NOW())`,
       [senderId, recipientId, amount, transferId]
     );
 
     // Log transaction for recipient (credit)
-    await connection.execute(
+    await client.query(
       `INSERT INTO transactions 
        (sender_id, receiver_id, amount, type, status, transfer_id, created_at) 
-       VALUES (?, ?, ?, 'transfer_credit', 'completed', ?, NOW())`,
+       VALUES ($1, $2, $3, 'transfer_credit', 'completed', $4, NOW())`,
       [senderId, recipientId, amount, transferId]
-    );
-*/
-    await connection.commit();
+    );*/
+
+    await client.query('COMMIT');
 
     // Get transfer details for response
-    const [transferDetails] = await connection.execute(
+    const transferDetailsResult = await client.query(
       `SELECT 
         t.id, 
         t.amount, 
@@ -198,25 +201,25 @@ exports.initiateTransfer = async (req, res) => {
        FROM transfers t
        JOIN users sender ON t.sender_id = sender.id
        JOIN users recipient ON t.recipient_id = recipient.id
-       WHERE t.id = ?`,
+       WHERE t.id = $1`,
       [transferId]
     );
 
     res.json({
       success: true,
       message: "Transfer completed successfully",
-      transfer: transferDetails[0]
+      transfer: transferDetailsResult.rows[0]
     });
 
   } catch (err) {
-    await connection.rollback();
+    await client.query('ROLLBACK');
     console.error("Transfer Error:", err);
     res.status(500).json({
       success: false,
       message: "Transfer failed"
     });
   } finally {
-    connection.release();
+    client.release();
   }
 };
 
@@ -232,8 +235,10 @@ exports.getTransferHistory = async (req, res) => {
     const userId = req.session.userId;
     const { page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
+    const pageLimit = parseInt(limit);
+    const pageOffset = parseInt(offset);
 
-    const [transfers] = await db.execute(
+    const transfersResult = await db.query(
       `SELECT 
         t.id,
         t.amount,
@@ -241,32 +246,34 @@ exports.getTransferHistory = async (req, res) => {
         t.status,
         t.created_at,
         CASE 
-          WHEN t.sender_id = ? THEN 'sent'
+          WHEN t.sender_id = $1 THEN 'sent'
           ELSE 'received'
         END as transfer_type,
         CASE 
-          WHEN t.sender_id = ? THEN recipient.name
+          WHEN t.sender_id = $1 THEN recipient.name
           ELSE sender.name
         END as other_party_name,
         CASE 
-          WHEN t.sender_id = ? THEN recipient.phone
+          WHEN t.sender_id = $1 THEN recipient.phone
           ELSE sender.phone
         END as other_party_phone
        FROM transfers t
        JOIN users sender ON t.sender_id = sender.id
        JOIN users recipient ON t.recipient_id = recipient.id
-       WHERE t.sender_id = ? OR t.recipient_id = ?
+       WHERE t.sender_id = $1 OR t.recipient_id = $1
        ORDER BY t.created_at DESC
-       LIMIT ? OFFSET ?`,
-      [userId, userId, userId, userId, userId, parseInt(limit), parseInt(offset)]
+       LIMIT $2 OFFSET $3`,
+      [userId, pageLimit, pageOffset]
     );
 
+    const transfers = transfersResult.rows;
+
     // Get total count
-    const [countResult] = await db.execute(
+    const countResult = await db.query(
       `SELECT COUNT(*) as total 
        FROM transfers 
-       WHERE sender_id = ? OR recipient_id = ?`,
-      [userId, userId]
+       WHERE sender_id = $1 OR recipient_id = $1`,
+      [userId]
     );
 
     res.json({
@@ -274,8 +281,8 @@ exports.getTransferHistory = async (req, res) => {
       transfers,
       pagination: {
         page: parseInt(page),
-        limit: parseInt(limit),
-        total: countResult[0].total
+        limit: pageLimit,
+        total: parseInt(countResult.rows[0].total)
       }
     });
 
@@ -300,7 +307,7 @@ exports.getTransferDetails = async (req, res) => {
     const { transferId } = req.params;
     const userId = req.session.userId;
 
-    const [transfers] = await db.execute(
+    const transfersResult = await db.query(
       `SELECT 
         t.id,
         t.amount,
@@ -314,9 +321,11 @@ exports.getTransferDetails = async (req, res) => {
        FROM transfers t
        JOIN users sender ON t.sender_id = sender.id
        JOIN users recipient ON t.recipient_id = recipient.id
-       WHERE t.id = ? AND (t.sender_id = ? OR t.recipient_id = ?)`,
-      [transferId, userId, userId]
+       WHERE t.id = $1 AND (t.sender_id = $2 OR t.recipient_id = $2)`,
+      [transferId, userId]
     );
+
+    const transfers = transfersResult.rows;
 
     if (transfers.length === 0) {
       return res.status(404).json({

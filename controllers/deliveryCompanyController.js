@@ -1,10 +1,10 @@
 const db = require("../config/db");
 
 exports.registerDeliveryCompany = async (req, res) => {
-  const connection = await db.getConnection();
+  const client = await db.connect();
   
   try {
-    await connection.beginTransaction();
+    await client.query('BEGIN');
 
     const userId = req.session.userId;
     const { 
@@ -23,6 +23,7 @@ exports.registerDeliveryCompany = async (req, res) => {
     // Validate required fields
     if (!companyName || !phoneNumber || !state || !localGovernment || 
         !vehicleType || !deliveryTypes || deliveryTypes.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ 
         success: false,
         message: "All required fields must be filled" 
@@ -30,23 +31,25 @@ exports.registerDeliveryCompany = async (req, res) => {
     }
 
     // Check if user already has a delivery company
-    const [existing] = await connection.execute(
-      "SELECT id FROM delivery_companies WHERE user_id = ?",
+    const existing = await client.query(
+      "SELECT id FROM delivery_companies WHERE user_id = $1",
       [userId]
     );
 
-    if (existing.length > 0) {
+    if (existing.rows.length > 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({
         success: false,
         message: "You already have a delivery company registered"
       });
     }
 
-    // Insert delivery company
-    const [result] = await connection.execute(
+    // Insert delivery company - PostgreSQL uses RETURNING id instead of insertId
+    const result = await client.query(
       `INSERT INTO delivery_companies 
        (user_id, company_name, full_name, description, phone_number, state, local_government, coverage_area, vehicle_type, delivery_types) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
+       RETURNING id`,
       [
         userId,
         companyName,
@@ -62,19 +65,22 @@ exports.registerDeliveryCompany = async (req, res) => {
       ]
     );
 
-    await connection.commit();
+    const companyId = result.rows[0].id;
+
+    await client.query('COMMIT');
 
     res.status(201).json({
       success: true,
       message: "Delivery company registered successfully! Your profile is under review.",
-      companyId: result.insertId
+      companyId: companyId
     });
 
   } catch (err) {
-    await connection.rollback();
+    await client.query('ROLLBACK');
     console.error("Delivery registration error:", err);
     
-    if (err.code === 'ER_DUP_ENTRY') {
+    // PostgreSQL unique violation error code is '23505'
+    if (err.code === '23505') {
       return res.status(400).json({
         success: false,
         message: "Delivery company already exists for this user"
@@ -86,6 +92,6 @@ exports.registerDeliveryCompany = async (req, res) => {
       message: "Server error during registration"
     });
   } finally {
-    connection.release();
+    client.release();
   }
 };

@@ -1,8 +1,6 @@
 const db = require("../config/db");
 
 // ✅ Dashboard Stats
-// backend/routes/admin.js
-// ✅ Dashboard Stats - FIXED VERSION
 exports.getDashboardStats = async (req, res) => {
   try {
     console.log("📊 Dashboard endpoint called");
@@ -15,17 +13,17 @@ exports.getDashboardStats = async (req, res) => {
 
     try {
       // 1. Users count
-      const [usersResult] = await db.execute("SELECT COUNT(*) as count FROM users");
-      usersCount = usersResult[0]?.count || 0;
+      const usersResult = await db.query("SELECT COUNT(*) as count FROM users");
+      usersCount = parseInt(usersResult.rows[0]?.count) || 0;
       console.log("Users count:", usersCount);
     } catch (err) {
-      console.error("Users query error:", err.message)
+      console.error("Users query error:", err.message);
     }
 
     try {
       // 2. Products count
-      const [productsResult] = await db.execute("SELECT COUNT(*) as count FROM products WHERE type='product'");
-      productsCount = productsResult[0]?.count || 0;
+      const productsResult = await db.query("SELECT COUNT(*) as count FROM products WHERE type='product'");
+      productsCount = parseInt(productsResult.rows[0]?.count) || 0;
       console.log("Products count:", productsCount);
     } catch (err) {
       console.error("Products query error:", err.message);
@@ -33,8 +31,8 @@ exports.getDashboardStats = async (req, res) => {
 
     try {
       // 3. Orders count
-      const [ordersResult] = await db.execute("SELECT COUNT(*) as count FROM orders");
-      ordersCount = ordersResult[0]?.count || 0;
+      const ordersResult = await db.query("SELECT COUNT(*) as count FROM orders");
+      ordersCount = parseInt(ordersResult.rows[0]?.count) || 0;
       console.log("Orders count:", ordersCount);
     } catch (err) {
       console.error("Orders query error:", err.message);
@@ -42,8 +40,8 @@ exports.getDashboardStats = async (req, res) => {
 
     try {
       // 4. Services count
-      const [servicesResult] = await db.execute("SELECT COUNT(*) as count FROM products WHERE type='service'");
-      servicesCount = servicesResult[0]?.count || 0;
+      const servicesResult = await db.query("SELECT COUNT(*) as count FROM products WHERE type='service'");
+      servicesCount = parseInt(servicesResult.rows[0]?.count) || 0;
       console.log("Services count:", servicesCount);
     } catch (err) {
       console.error("Services query error:", err.message);
@@ -51,8 +49,8 @@ exports.getDashboardStats = async (req, res) => {
 
     try {
       // 5. Total revenue
-      const [revenueResult] = await db.execute("SELECT SUM(amount) as total FROM escrow WHERE status='released'");
-      totalRevenue = revenueResult[0]?.total || 0;
+      const revenueResult = await db.query("SELECT COALESCE(SUM(amount), 0) as total FROM escrow WHERE status='released'");
+      totalRevenue = parseFloat(revenueResult.rows[0]?.total) || 0;
       console.log("Total revenue:", totalRevenue);
     } catch (err) {
       console.error("Revenue query error:", err.message);
@@ -60,8 +58,8 @@ exports.getDashboardStats = async (req, res) => {
 
     try {
       // 6. Pending escrows
-      const [escrowsResult] = await db.execute("SELECT COUNT(*) as count FROM escrow WHERE status='pending'");
-      pendingEscrows = escrowsResult[0]?.count || 0;
+      const escrowsResult = await db.query("SELECT COUNT(*) as count FROM escrow WHERE status='pending'");
+      pendingEscrows = parseInt(escrowsResult.rows[0]?.count) || 0;
       console.log("Pending escrows:", pendingEscrows);
     } catch (err) {
       console.error("Escrows query error:", err.message);
@@ -69,8 +67,8 @@ exports.getDashboardStats = async (req, res) => {
 
     try {
       // 7. Pending deposits
-      const [depositsResult] = await db.execute("SELECT COUNT(*) as count FROM deposits WHERE status='pending'");
-      pendingDeposits = depositsResult[0]?.count || 0;
+      const depositsResult = await db.query("SELECT COUNT(*) as count FROM deposits WHERE status='pending'");
+      pendingDeposits = parseInt(depositsResult.rows[0]?.count) || 0;
       console.log("Pending deposits:", pendingDeposits);
     } catch (err) {
       console.error("Deposits query error:", err.message);
@@ -78,34 +76,32 @@ exports.getDashboardStats = async (req, res) => {
 
     try {
       // 8. Pending withdrawals
-      const [withdrawalsResult] = await db.execute("SELECT COUNT(*) as count FROM withdrawals WHERE status='pending'");
-      pendingWithdrawals = withdrawalsResult[0]?.count || 0;
+      const withdrawalsResult = await db.query("SELECT COUNT(*) as count FROM withdrawals WHERE status='pending'");
+      pendingWithdrawals = parseInt(withdrawalsResult.rows[0]?.count) || 0;
       console.log("Pending withdrawals:", pendingWithdrawals);
     } catch (err) {
       console.error("Withdrawals query error:", err.message);
-      // If withdrawals table doesn't exist, return 0
     }
 
     try {
       // 9. Pending disputes
-      const [disputesResult] = await db.execute("SELECT COUNT(*) as count FROM orders WHERE dispute_status = 'open'");
-      pendingDisputes = disputesResult[0]?.count || 0;
+      const disputesResult = await db.query("SELECT COUNT(*) as count FROM orders WHERE dispute_status = 'open'");
+      pendingDisputes = parseInt(disputesResult.rows[0]?.count) || 0;
       console.log("Pending disputes:", pendingDisputes);
     } catch (err) {
       console.error("Disputes query error:", err.message);
-      // If dispute_status column doesn't exist, return 0
     }
 
     try {
       // 10. Recent transactions
-      const [transactionsResult] = await db.execute(`
+      const transactionsResult = await db.query(`
         SELECT t.*, u.name as user_name 
         FROM transactions t 
         JOIN users u ON t.user_id = u.id 
         ORDER BY t.created_at DESC 
-        LIMIT 10
-      `);
-      recentTransactions = transactionsResult || [];
+        LIMIT $1
+      `, [10]);
+      recentTransactions = transactionsResult.rows || [];
       console.log("Recent transactions count:", recentTransactions.length);
     } catch (err) {
       console.error("Transactions query error:", err.message);
@@ -114,8 +110,12 @@ exports.getDashboardStats = async (req, res) => {
 
     // Debug: Check database structure
     try {
-      const [tables] = await db.execute("SHOW TABLES");
-      console.log("Available tables:", tables.map(t => Object.values(t)[0]));
+      const tables = await db.query(`
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public'
+      `);
+      console.log("Available tables:", tables.rows.map(t => t.table_name));
     } catch (err) {
       console.error("Table check error:", err.message);
     }
@@ -146,8 +146,7 @@ exports.getDashboardStats = async (req, res) => {
     res.status(500).json({ 
       success: false,
       message: "Server error", 
-      error: err.message,
-      sql: err.sql
+      error: err.message
     });
   }
 };
@@ -163,19 +162,22 @@ exports.getAllUsers = async (req, res) => {
     // Build WHERE clause if search exists
     let whereClause = '';
     let params = [];
+    let paramCounter = 1;
     
     if (search.trim()) {
-      whereClause = ' WHERE phone LIKE ? OR name LIKE ? OR email LIKE ?';
+      whereClause = ' WHERE phone LIKE $1 OR name LIKE $1 OR email LIKE $1';
       const searchTerm = `%${search.trim()}%`;
-      params = [searchTerm, searchTerm, searchTerm];
+      params = [searchTerm];
+      paramCounter = 2;
     }
 
     // Get total count
     const countSql = `SELECT COUNT(*) as total FROM users${whereClause}`;
-    const [[{ total }]] = await db.execute(countSql, params);
+    const countResult = await db.query(countSql, params);
+    const total = parseInt(countResult.rows[0]?.total) || 0;
 
     // Get users - include is_blocked field
-    const usersSql = `
+    let usersSql = `
       SELECT u.*, 
              w.balance as wallet_balance,
              (SELECT COUNT(*) FROM products WHERE seller_id = u.id) as products_count,
@@ -184,12 +186,12 @@ exports.getAllUsers = async (req, res) => {
       LEFT JOIN wallet w ON u.id = w.user_id
       ${whereClause}
       ORDER BY u.id DESC 
-      LIMIT ${limit} OFFSET ${offset}
+      LIMIT $${paramCounter} OFFSET $${paramCounter + 1}
     `;
     
-    const [users] = params.length > 0 
-      ? await db.execute(usersSql, params)
-      : await db.execute(usersSql);
+    const usersParams = [...params, limit, offset];
+    const usersResult = await db.query(usersSql, usersParams);
+    const users = usersResult.rows;
 
     console.log('Raw user data from DB (first user):', users[0] ? {
       id: users[0].id,
@@ -213,9 +215,9 @@ exports.getAllUsers = async (req, res) => {
         role: user.role,
         type: user.type,
         location: user.location,
-        wallet_balance: user.wallet_balance || 0,
-        products_count: user.products_count || 0,
-        orders_count: user.orders_count || 0,
+        wallet_balance: parseFloat(user.wallet_balance) || 0,
+        products_count: parseInt(user.products_count) || 0,
+        orders_count: parseInt(user.orders_count) || 0,
         created_at: user.created_at || new Date().toISOString(),
         status: isBlocked ? 'blocked' : 'active',
         is_blocked: isBlocked
@@ -258,32 +260,31 @@ exports.updateUser = async (req, res) => {
       return res.status(400).json({ message: "is_blocked parameter required" });
     }
 
-    // Convert to boolean/1/0 for database
+    // Convert to boolean for database
     const blockedValue = Boolean(is_blocked);
-    const blockedInt = blockedValue ? 1 : 0;
 
-    console.log('Updating user', userId, 'is_blocked to:', blockedValue, '(DB value:', blockedInt, ')');
+    console.log('Updating user', userId, 'is_blocked to:', blockedValue);
 
     // Update the user
-    const [result] = await db.execute(
-      "UPDATE users SET is_blocked = ?, updated_at = NOW() WHERE id = ?",
-      [blockedInt, userId]
+    const result = await db.query(
+      "UPDATE users SET is_blocked = $1, updated_at = NOW() WHERE id = $2",
+      [blockedValue, userId]
     );
 
     console.log('Update result:', {
-      affectedRows: result.affectedRows,
-      changedRows: result.changedRows
+      rowCount: result.rowCount
     });
 
-    if (result.affectedRows === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({ message: "User not found" });
     }
 
     // Verify the update worked
-    const [[updatedUser]] = await db.execute(
-      "SELECT id, name, is_blocked FROM users WHERE id = ?",
+    const updatedUserResult = await db.query(
+      "SELECT id, name, is_blocked FROM users WHERE id = $1",
       [userId]
     );
+    const updatedUser = updatedUserResult.rows[0];
 
     console.log('Verified update - user now has is_blocked:', updatedUser.is_blocked);
 
@@ -300,7 +301,6 @@ exports.updateUser = async (req, res) => {
     console.error("Update user error details:", {
       message: err.message,
       code: err.code,
-      sql: err.sql,
       stack: err.stack
     });
     
@@ -320,20 +320,24 @@ exports.getAllProducts = async (req, res) => {
 
     let whereConditions = [];
     const queryParams = [];
+    let paramCounter = 1;
 
     if (search) {
-      whereConditions.push("(p.title LIKE ? OR p.description LIKE ?)");
-      queryParams.push(`%${search}%`, `%${search}%`);
+      whereConditions.push(`(p.title ILIKE $${paramCounter} OR p.description ILIKE $${paramCounter})`);
+      queryParams.push(`%${search}%`);
+      paramCounter++;
     }
 
     if (type) {
-      whereConditions.push("p.type = ?");
+      whereConditions.push(`p.type = $${paramCounter}`);
       queryParams.push(type);
+      paramCounter++;
     }
 
     if (status) {
-      whereConditions.push("p.status = ?");
+      whereConditions.push(`p.status = $${paramCounter}`);
       queryParams.push(status);
+      paramCounter++;
     }
 
     // Build WHERE clause
@@ -344,9 +348,10 @@ exports.getAllProducts = async (req, res) => {
 
     // Count query
     const countQuery = `SELECT COUNT(*) as total FROM products p ${whereClause}`;
-    const [[{ total }]] = await db.execute(countQuery, queryParams);
+    const countResult = await db.query(countQuery, queryParams);
+    const total = parseInt(countResult.rows[0]?.total) || 0;
 
-    // Main query with string concatenation for limit/offset
+    // Main query with parameterized limit/offset
     const query = `
       SELECT p.*, 
              u.name as seller_name, 
@@ -358,13 +363,14 @@ exports.getAllProducts = async (req, res) => {
       LEFT JOIN categories c ON p.category_id = c.id
       ${whereClause}
       ORDER BY p.created_at DESC
-      LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
+      LIMIT $${paramCounter} OFFSET $${paramCounter + 1}
     `;
     
-    console.log("Query:", query);
-    console.log("Params:", queryParams);
+    const productsParams = [...queryParams, parseInt(limit), parseInt(offset)];
+    console.log("Params:", productsParams);
     
-    const [products] = await db.execute(query, queryParams);
+    const productsResult = await db.query(query, productsParams);
+    const products = productsResult.rows;
 
     res.json({
       products,
@@ -388,22 +394,22 @@ exports.deleteProduct = async (req, res) => {
     const { deleteType = 'soft' } = req.body; // 'soft' or 'hard'
 
     // Check if product exists
-    const [productRows] = await db.execute(
-      "SELECT * FROM products WHERE id = ?",
+    const productResult = await db.query(
+      "SELECT * FROM products WHERE id = $1",
       [productId]
     );
 
-    if (productRows.length === 0) {
+    if (productResult.rows.length === 0) {
       return res.status(404).json({ message: "Product/Service not found" });
     }
 
-    const product = productRows[0];
+    const product = productResult.rows[0];
     const productType = product.type === 'service' ? 'Service' : 'Product';
 
     if (deleteType === 'soft') {
       // Soft delete - mark as deleted
-      await db.execute(
-        "UPDATE products SET status = 'deleted', deleted_at = NOW() WHERE id = ?",
+      await db.query(
+        "UPDATE products SET status = 'deleted', deleted_at = NOW() WHERE id = $1",
         [productId]
       );
       res.json({ 
@@ -413,23 +419,23 @@ exports.deleteProduct = async (req, res) => {
     } else if (deleteType === 'hard') {
       // Hard delete - permanently remove
       // Check if product has active orders or escrow
-      const [activeOrders] = await db.execute(
-        "SELECT COUNT(*) as count FROM orders WHERE product_id = ? AND status NOT IN ('completed', 'cancelled')",
+      const activeOrdersResult = await db.query(
+        "SELECT COUNT(*) as count FROM orders WHERE product_id = $1 AND status NOT IN ('completed', 'cancelled')",
         [productId]
       );
 
-      const [activeEscrow] = await db.execute(
-        "SELECT COUNT(*) as count FROM escrow e JOIN orders o ON e.order_id = o.id WHERE o.product_id = ? AND e.status = 'pending'",
+      const activeEscrowResult = await db.query(
+        "SELECT COUNT(*) as count FROM escrow e JOIN orders o ON e.order_id = o.id WHERE o.product_id = $1 AND e.status = 'pending'",
         [productId]
       );
 
-      if (activeOrders[0].count > 0 || activeEscrow[0].count > 0) {
+      if (parseInt(activeOrdersResult.rows[0].count) > 0 || parseInt(activeEscrowResult.rows[0].count) > 0) {
         return res.status(400).json({ 
           message: `Cannot delete ${productType.toLowerCase()} with active orders or pending escrow`
         });
       }
 
-      await db.execute("DELETE FROM products WHERE id = ?", [productId]);
+      await db.query("DELETE FROM products WHERE id = $1", [productId]);
       res.json({ 
         message: `${productType} permanently deleted successfully`,
         warning: "This action cannot be undone"
@@ -451,23 +457,25 @@ exports.getAllOrders = async (req, res) => {
     const pageLimit = parseInt(limit);
     const pageOffset = parseInt(offset);
 
-    let whereClause = " WHERE 1=1";
+    let whereConditions = [];
     const params = [];
+    let paramCounter = 1;
 
     if (status) {
-      whereClause += " AND o.status = ?";
+      whereConditions.push(`o.status = $${paramCounter}`);
       params.push(status);
+      paramCounter++;
     }
 
     if (dispute_status) {
-      whereClause += " AND o.payment_status = ?";
+      whereConditions.push(`o.payment_status = $${paramCounter}`);
       params.push(dispute_status);
+      paramCounter++;
     }
 
-    // DEBUG: Log what's being sent
-    console.log("Params for main query:", [...params, pageLimit, pageOffset]);
-    
-    // Use a different approach - build the query dynamically
+    const whereClause = whereConditions.length > 0 ? "WHERE " + whereConditions.join(" AND ") : "";
+
+    // Build the query dynamically
     const query = `
       SELECT o.*,
              b.name as buyer_name,
@@ -484,14 +492,17 @@ exports.getAllOrders = async (req, res) => {
       JOIN products p ON o.product_id = p.id
       ${whereClause}
       ORDER BY o.created_at DESC
-      LIMIT ${pageLimit} OFFSET ${pageOffset}
+      LIMIT $${paramCounter} OFFSET $${paramCounter + 1}
     `;
     
-    const [orders] = await db.execute(query, params);
+    const ordersParams = [...params, pageLimit, pageOffset];
+    const ordersResult = await db.query(query, ordersParams);
+    const orders = ordersResult.rows;
 
     // For count query
     const countQuery = `SELECT COUNT(*) as total FROM orders o ${whereClause}`;
-    const [[{ total }]] = await db.execute(countQuery, params);
+    const countResult = await db.query(countQuery, params);
+    const total = parseInt(countResult.rows[0]?.total) || 0;
 
     res.json({
       orders,
@@ -520,14 +531,14 @@ exports.updateOrderStatus = async (req, res) => {
       return res.status(400).json({ message: 'Invalid status' });
     }
 
-    await db.execute(
-      "UPDATE orders SET status = ?, updated_at = NOW() WHERE id = ?",
+    await db.query(
+      "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
       [status, orderId]
     );
 
     // Log the status change
-    await db.execute(
-      "INSERT INTO order_logs (order_id, action, details, admin_info) VALUES (?, ?, ?, ?)",
+    await db.query(
+      "INSERT INTO order_logs (order_id, action, details, admin_info) VALUES ($1, $2, $3, $4)",
       [orderId, 'status_update', `Status changed to ${status}`, adminEmail]
     );
 
@@ -553,23 +564,27 @@ exports.getAllDisputes = async (req, res) => {
     const pageLimit = parseInt(limit);
     const pageOffset = parseInt(offset);
 
-    let whereConditions = ["1=1"];
+    let whereConditions = [];
     const queryParams = [];
+    let paramCounter = 1;
 
     if (status) {
-      whereConditions.push("d.status = ?");
+      whereConditions.push(`d.status = $${paramCounter}`);
       queryParams.push(status);
+      paramCounter++;
     }
 
     if (dispute_type) {
-      whereConditions.push("d.dispute_type = ?");
+      whereConditions.push(`d.dispute_type = $${paramCounter}`);
       queryParams.push(dispute_type);
+      paramCounter++;
     }
 
     if (search) {
-      whereConditions.push("(o.id LIKE ? OR r.name LIKE ? OR du.name LIKE ? OR p.name LIKE ?)");
+      whereConditions.push(`(CAST(o.id AS TEXT) ILIKE $${paramCounter} OR r.name ILIKE $${paramCounter} OR du.name ILIKE $${paramCounter} OR p.name ILIKE $${paramCounter})`);
       const searchTerm = `%${search}%`;
-      queryParams.push(searchTerm, searchTerm, searchTerm, searchTerm);
+      queryParams.push(searchTerm);
+      paramCounter++;
     }
 
     const whereClause = whereConditions.length > 0 ? "WHERE " + whereConditions.join(" AND ") : "";
@@ -621,10 +636,12 @@ exports.getAllDisputes = async (req, res) => {
           WHEN 'cancelled' THEN 4
         END,
         d.created_at DESC
-      LIMIT ${pageLimit} OFFSET ${pageOffset}
+      LIMIT $${paramCounter} OFFSET $${paramCounter + 1}
     `;
 
-    const [disputes] = await db.execute(disputesQuery, queryParams);
+    const disputesParams = [...queryParams, pageLimit, pageOffset];
+    const disputesResult = await db.query(disputesQuery, disputesParams);
+    const disputes = disputesResult.rows;
 
     // Count query
     const countQuery = `
@@ -636,7 +653,8 @@ exports.getAllDisputes = async (req, res) => {
       ${whereClause}
     `;
 
-    const [[{ total }]] = await db.execute(countQuery, queryParams);
+    const countResult = await db.query(countQuery, queryParams);
+    const total = parseInt(countResult.rows[0]?.total) || 0;
 
     // Format disputes for frontend
     const formattedDisputes = disputes.map(dispute => ({
@@ -664,17 +682,17 @@ exports.getAllDisputes = async (req, res) => {
         id: dispute.product_id,
         name: dispute.product_name,
         type: dispute.product_type,
-        price: dispute.product_price
+        price: parseFloat(dispute.product_price) || 0
       },
       order: {
         id: dispute.order_id,
-        amount: dispute.order_amount,
+        amount: parseFloat(dispute.order_amount) || 0,
         status: dispute.order_status,
         payment_status: dispute.payment_status,
         date: dispute.order_date
       },
       escrow: {
-        amount: dispute.escrow_amount,
+        amount: parseFloat(dispute.escrow_amount) || 0,
         status: dispute.escrow_status,
         created: dispute.escrow_created
       },
@@ -698,7 +716,8 @@ exports.getAllDisputes = async (req, res) => {
       FROM disputes
     `;
 
-    const [[stats]] = await db.execute(statsQuery);
+    const statsResult = await db.query(statsQuery);
+    const stats = statsResult.rows[0] || {};
 
     res.json({
       disputes: formattedDisputes,
@@ -768,21 +787,22 @@ exports.getDisputeById = async (req, res) => {
       JOIN escrow e ON d.escrow_id = e.id
       LEFT JOIN users admin ON d.resolved_by = admin.id
       LEFT JOIN users dc ON o.delivery_company_id = dc.id
-      WHERE d.id = ?
+      WHERE d.id = $1
     `;
 
-    const [[dispute]] = await db.execute(disputeQuery, [disputeId]);
+    const disputeResult = await db.query(disputeQuery, [disputeId]);
+    const dispute = disputeResult.rows[0];
 
     if (!dispute) {
       return res.status(404).json({ message: "Dispute not found" });
     }
 
     // Get dispute messages/comments
-    const [messages] = await db.execute(`
+    const messagesResult = await db.query(`
       SELECT dm.*, u.name as user_name, u.role as user_role
       FROM dispute_messages dm
       JOIN users u ON dm.user_id = u.id
-      WHERE dm.dispute_id = ?
+      WHERE dm.dispute_id = $1
       ORDER BY dm.created_at ASC
     `, [disputeId]);
 
@@ -812,13 +832,13 @@ exports.getDisputeById = async (req, res) => {
         id: dispute.product_id,
         name: dispute.product_name,
         type: dispute.product_type,
-        price: dispute.product_price,
+        price: parseFloat(dispute.product_price) || 0,
         description: dispute.product_description,
         image: dispute.product_image
       },
       order: {
         id: dispute.order_id,
-        amount: dispute.order_amount,
+        amount: parseFloat(dispute.order_amount) || 0,
         status: dispute.order_status,
         payment_status: dispute.payment_status,
         shipping_address: dispute.shipping_address,
@@ -830,7 +850,7 @@ exports.getDisputeById = async (req, res) => {
         } : null
       },
       escrow: {
-        amount: dispute.escrow_amount,
+        amount: parseFloat(dispute.escrow_amount) || 0,
         status: dispute.escrow_status,
         created: dispute.escrow_created
       },
@@ -838,7 +858,7 @@ exports.getDisputeById = async (req, res) => {
       resolution: dispute.resolution,
       admin_notes: dispute.admin_notes,
       resolved_by: dispute.resolved_by_name,
-      messages: messages,
+      messages: messagesResult.rows,
       created_at: dispute.created_at,
       updated_at: dispute.updated_at,
       resolved_at: dispute.resolved_at
@@ -863,9 +883,9 @@ exports.addDisputeMessage = async (req, res) => {
       return res.status(400).json({ message: "Message is required" });
     }
 
-    await db.execute(
+    await db.query(
       `INSERT INTO dispute_messages (dispute_id, user_id, message, is_internal, created_at)
-       VALUES (?, ?, ?, ?, NOW())`,
+       VALUES ($1, $2, $3, $4, NOW())`,
       [disputeId, userId, message.trim(), is_internal || false]
     );
 
@@ -889,12 +909,12 @@ exports.updateDisputeStatus = async (req, res) => {
       return res.status(400).json({ message: "Invalid status" });
     }
 
-    await db.execute(
+    await db.query(
       `UPDATE disputes 
-       SET status = ?, 
-           admin_notes = CONCAT(IFNULL(admin_notes, ''), '\n', ?),
+       SET status = $1, 
+           admin_notes = CONCAT(COALESCE(admin_notes, ''), '\n', $2),
            updated_at = NOW()
-       WHERE id = ?`,
+       WHERE id = $3`,
       [status, `[${new Date().toISOString()}] Status changed to ${status}: ${admin_notes || 'No notes'}`, disputeId]
     );
 
@@ -908,7 +928,7 @@ exports.updateDisputeStatus = async (req, res) => {
 
 // ✅ Resolve Dispute with Escrow Action
 exports.resolveDispute = async (req, res) => {
-  const connection = await db.getConnection();
+  const client = await db.connect();
   
   try {
     const { disputeId } = req.params;
@@ -917,100 +937,102 @@ exports.resolveDispute = async (req, res) => {
 
     const validResolutions = ['release_to_seller', 'refund_to_buyer', 'partial_refund', 'split_payment', 'case_dismissed'];
     if (!validResolutions.includes(resolution)) {
-      await connection.rollback();
+      await client.query('ROLLBACK');
       return res.status(400).json({ message: "Invalid resolution" });
     }
 
-    await connection.beginTransaction();
+    await client.query('BEGIN');
 
     // Get dispute details with escrow info
-    const [[dispute]] = await connection.execute(`
+    const disputeResult = await client.query(`
       SELECT d.*, e.amount as escrow_amount, e.buyer_id, e.seller_id, e.order_id
       FROM disputes d
       JOIN escrow e ON d.escrow_id = e.id
-      WHERE d.id = ? AND d.status != 'resolved'
+      WHERE d.id = $1 AND d.status != 'resolved'
     `, [disputeId]);
 
+    const dispute = disputeResult.rows[0];
+
     if (!dispute) {
-      await connection.rollback();
+      await client.query('ROLLBACK');
       return res.status(404).json({ message: "Dispute not found or already resolved" });
     }
 
     // Handle different resolutions
     if (resolution === 'release_to_seller') {
       // Release full amount to seller
-      await connection.execute(
-        "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
-        [dispute.escrow_amount, dispute.seller_id]
+      await client.query(
+        "UPDATE wallet SET balance = balance + $1 WHERE user_id = $2",
+        [parseFloat(dispute.escrow_amount), dispute.seller_id]
       );
-      await connection.execute(
-        "UPDATE escrow SET status = 'released', released_at = NOW() WHERE id = ?",
+      await client.query(
+        "UPDATE escrow SET status = 'released', released_at = NOW() WHERE id = $1",
         [dispute.escrow_id]
       );
 
     } else if (resolution === 'refund_to_buyer') {
       // Refund full amount to buyer
-      await connection.execute(
-        "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
-        [dispute.escrow_amount, dispute.buyer_id]
+      await client.query(
+        "UPDATE wallet SET balance = balance + $1 WHERE user_id = $2",
+        [parseFloat(dispute.escrow_amount), dispute.buyer_id]
       );
-      await connection.execute(
-        "UPDATE escrow SET status = 'refunded', released_at = NOW() WHERE id = ?",
+      await client.query(
+        "UPDATE escrow SET status = 'refunded', released_at = NOW() WHERE id = $1",
         [dispute.escrow_id]
       );
 
     } else if (resolution === 'partial_refund') {
-      const refundAmt = refund_amount || Math.floor(dispute.escrow_amount * 0.5);
-      const sellerAmt = dispute.escrow_amount - refundAmt;
+      const refundAmt = refund_amount || parseFloat(dispute.escrow_amount) * 0.5;
+      const sellerAmt = parseFloat(dispute.escrow_amount) - refundAmt;
       
       // Refund partial to buyer
-      await connection.execute(
-        "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
+      await client.query(
+        "UPDATE wallet SET balance = balance + $1 WHERE user_id = $2",
         [refundAmt, dispute.buyer_id]
       );
       
       // Release rest to seller
-      await connection.execute(
-        "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
+      await client.query(
+        "UPDATE wallet SET balance = balance + $1 WHERE user_id = $2",
         [sellerAmt, dispute.seller_id]
       );
       
-      await connection.execute(
-        "UPDATE escrow SET status = 'partially_released', released_at = NOW() WHERE id = ?",
+      await client.query(
+        "UPDATE escrow SET status = 'partially_released', released_at = NOW() WHERE id = $1",
         [dispute.escrow_id]
       );
 
     } else if (resolution === 'split_payment') {
       // 50/50 split
-      const halfAmount = dispute.escrow_amount / 2;
+      const halfAmount = parseFloat(dispute.escrow_amount) / 2;
       
-      await connection.execute(
-        "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
+      await client.query(
+        "UPDATE wallet SET balance = balance + $1 WHERE user_id = $2",
         [halfAmount, dispute.buyer_id]
       );
       
-      await connection.execute(
-        "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
+      await client.query(
+        "UPDATE wallet SET balance = balance + $1 WHERE user_id = $2",
         [halfAmount, dispute.seller_id]
       );
       
-      await connection.execute(
-        "UPDATE escrow SET status = 'split_released', released_at = NOW() WHERE id = ?",
+      await client.query(
+        "UPDATE escrow SET status = 'split_released', released_at = NOW() WHERE id = $1",
         [dispute.escrow_id]
       );
     }
     // case_dismissed - no money movement, just close dispute
 
     // Update dispute record
-    await connection.execute(
+    await client.query(
       `UPDATE disputes 
        SET status = 'resolved',
-           resolution = ?,
-           resolved_by = ?,
+           resolution = $1,
+           resolved_by = $2,
            resolved_at = NOW(),
-           admin_notes = CONCAT(IFNULL(admin_notes, ''), '\n', ?),
+           admin_notes = CONCAT(COALESCE(admin_notes, ''), '\n', $3),
            updated_at = NOW()
-       WHERE id = ?`,
+       WHERE id = $4`,
       [
         resolution,
         userId,
@@ -1020,20 +1042,20 @@ exports.resolveDispute = async (req, res) => {
     );
 
     // Update order dispute status
-    await connection.execute(
-      "UPDATE orders SET dispute_status = 'closed', updated_at = NOW() WHERE id = ?",
+    await client.query(
+      "UPDATE orders SET dispute_status = 'closed', updated_at = NOW() WHERE id = $1",
       [dispute.order_id]
     );
 
-    await connection.commit();
+    await client.query('COMMIT');
     res.json({ message: "Dispute resolved successfully", resolution });
 
   } catch (err) {
-    await connection.rollback();
+    await client.query('ROLLBACK');
     console.error("Error in resolveDispute:", err);
     res.status(500).json({ message: "Server error", error: err.message });
   } finally {
-    connection.release();
+    client.release();
   }
 };
 
@@ -1043,38 +1065,44 @@ exports.getAllTransactions = async (req, res) => {
     const { page = 1, limit = 20, type = '', user_id = '' } = req.query;
     const offset = (page - 1) * limit;
 
-    let whereClause = "";
+    let whereConditions = [];
     const params = [];
+    let paramCounter = 1;
 
     if (type) {
-      whereClause += whereClause ? " AND" : " WHERE";
-      whereClause += " t.type = ?";
+      whereConditions.push(`t.type = $${paramCounter}`);
       params.push(type);
+      paramCounter++;
     }
 
     if (user_id) {
-      whereClause += whereClause ? " AND" : " WHERE";
-      whereClause += " t.user_id = ?";
+      whereConditions.push(`t.user_id = $${paramCounter}`);
       params.push(user_id);
+      paramCounter++;
     }
 
-    const [transactions] = await db.execute(`
+    const whereClause = whereConditions.length > 0 ? "WHERE " + whereConditions.join(" AND ") : "";
+
+    const transactionsQuery = `
       SELECT t.*, 
              u.name as user_name,
              u.phone as user_phone,
              w.balance as current_balance
       FROM transactions t
       JOIN users u ON t.user_id = u.id
-      LEFT JOIN wallets w ON t.user_id = w.user_id
+      LEFT JOIN wallet w ON t.user_id = w.user_id
       ${whereClause}
       ORDER BY t.created_at DESC
-      LIMIT ? OFFSET ?
-    `, [...params, parseInt(limit), offset]);
+      LIMIT $${paramCounter} OFFSET $${paramCounter + 1}
+    `;
+    
+    const transactionsParams = [...params, parseInt(limit), offset];
+    const transactionsResult = await db.query(transactionsQuery, transactionsParams);
+    const transactions = transactionsResult.rows;
 
-    const [[{ total }]] = await db.execute(
-      `SELECT COUNT(*) as total FROM transactions ${whereClause}`,
-      params
-    );
+    const countQuery = `SELECT COUNT(*) as total FROM transactions ${whereClause}`;
+    const countResult = await db.query(countQuery, params);
+    const total = parseInt(countResult.rows[0]?.total) || 0;
 
     res.json({
       transactions,
@@ -1108,29 +1136,32 @@ exports.getAllEscrows = async (req, res) => {
     const offsetNum = (pageNum - 1) * limitNum;
 
     // Build where conditions
-    let whereConditions = ["1=1"];
+    let whereConditions = [];
     let queryParams = [];
+    let paramCounter = 1;
 
     if (status && status !== 'all') {
-      whereConditions.push("e.status = ?");
+      whereConditions.push(`e.status = $${paramCounter}`);
       queryParams.push(status);
+      paramCounter++;
     }
 
     if (search) {
-      whereConditions.push("(e.id LIKE ? OR b.name LIKE ? OR s.name LIKE ? OR p.name LIKE ?)");
+      whereConditions.push(`(CAST(e.id AS TEXT) ILIKE $${paramCounter} OR b.name ILIKE $${paramCounter} OR s.name ILIKE $${paramCounter} OR p.name ILIKE $${paramCounter})`);
       const searchTerm = `%${search}%`;
-      queryParams.push(searchTerm, searchTerm, searchTerm, searchTerm);
+      queryParams.push(searchTerm);
+      paramCounter++;
     }
 
     // Date range filtering
     if (date_range !== 'all') {
       let dateCondition = "";
       if (date_range === 'today') {
-        dateCondition = "DATE(e.created_at) = CURDATE()";
+        dateCondition = "DATE(e.created_at) = CURRENT_DATE";
       } else if (date_range === 'week') {
-        dateCondition = "e.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)";
+        dateCondition = "e.created_at >= CURRENT_DATE - INTERVAL '7 days'";
       } else if (date_range === 'month') {
-        dateCondition = "e.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
+        dateCondition = "e.created_at >= CURRENT_DATE - INTERVAL '30 days'";
       }
       
       if (dateCondition) {
@@ -1138,9 +1169,9 @@ exports.getAllEscrows = async (req, res) => {
       }
     }
 
-    const whereClause = whereConditions.length > 1 ? "WHERE " + whereConditions.join(" AND ") : "";
+    const whereClause = whereConditions.length > 0 ? "WHERE " + whereConditions.join(" AND ") : "";
 
-    // Main escrows query - FIXED: Proper parameter binding
+    // Main escrows query
     const escrowsQuery = `
       SELECT 
         e.id,
@@ -1177,40 +1208,42 @@ exports.getAllEscrows = async (req, res) => {
           WHEN 'refunded' THEN 4
         END,
         e.created_at DESC
-      LIMIT ? OFFSET ?
+      LIMIT $${paramCounter} OFFSET $${paramCounter + 1}
     `;
     
     // Add LIMIT and OFFSET to parameters
     const escrowsParams = [...queryParams, limitNum, offsetNum];
     
-    console.log("Escrows Query:", escrowsQuery);
     console.log("Escrows Params:", escrowsParams);
     
-    const [escrows] = await db.execute(escrowsQuery, escrowsParams);
+    const escrowsResult = await db.query(escrowsQuery, escrowsParams);
+    const escrows = escrowsResult.rows;
 
     // Stats query - separate from main query parameters
-    let statsConditions = ["1=1"];
+    let statsConditions = [];
     let statsParams = [];
+    let statsParamCounter = 1;
 
     if (status && status !== 'all') {
-      statsConditions.push("status = ?");
+      statsConditions.push(`status = $${statsParamCounter}`);
       statsParams.push(status);
+      statsParamCounter++;
     }
 
     if (search) {
-      statsConditions.push("id LIKE ?");
-      const searchTerm = `%${search}%`;
-      statsParams.push(searchTerm);
+      statsConditions.push(`CAST(id AS TEXT) ILIKE $${statsParamCounter}`);
+      statsParams.push(`%${search}%`);
+      statsParamCounter++;
     }
 
     if (date_range !== 'all') {
       let dateCondition = "";
       if (date_range === 'today') {
-        dateCondition = "DATE(created_at) = CURDATE()";
+        dateCondition = "DATE(created_at) = CURRENT_DATE";
       } else if (date_range === 'week') {
-        dateCondition = "created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)";
+        dateCondition = "created_at >= CURRENT_DATE - INTERVAL '7 days'";
       } else if (date_range === 'month') {
-        dateCondition = "created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
+        dateCondition = "created_at >= CURRENT_DATE - INTERVAL '30 days'";
       }
       
       if (dateCondition) {
@@ -1218,7 +1251,7 @@ exports.getAllEscrows = async (req, res) => {
       }
     }
 
-    const statsWhereClause = statsConditions.length > 1 ? "WHERE " + statsConditions.join(" AND ") : "";
+    const statsWhereClause = statsConditions.length > 0 ? "WHERE " + statsConditions.join(" AND ") : "";
 
     // Stats query
     const statsQuery = `
@@ -1234,11 +1267,10 @@ exports.getAllEscrows = async (req, res) => {
       ${statsWhereClause}
     `;
     
-    console.log("Stats Query:", statsQuery);
     console.log("Stats Params:", statsParams);
     
-    const [statsRows] = await db.execute(statsQuery, statsParams);
-    const stats = statsRows[0] || {};
+    const statsResult = await db.query(statsQuery, statsParams);
+    const stats = statsResult.rows[0] || {};
 
     // Format the response - ensure all fields are properly converted
     const formattedEscrows = escrows.map(escrow => ({
@@ -1289,96 +1321,95 @@ exports.getAllEscrows = async (req, res) => {
     res.status(500).json({ 
       success: false,
       message: "Server error", 
-      error: err.message,
-      sql: err.sql
+      error: err.message
     });
   }
 };
 
-// ✅ Your existing release/refund escrow functions (keep them as they are)
+// ✅ Your existing release/refund escrow functions
 exports.releaseEscrow = async (req, res) => {
-  const connection = await db.getConnection();
+  const client = await db.connect();
   try {
     const { escrowId } = req.body;
 
-    await connection.beginTransaction();
+    await client.query('BEGIN');
 
     // Find escrow
-    const [rows] = await connection.execute("SELECT * FROM escrow WHERE id=?", [escrowId]);
-    if (rows.length === 0) {
-      await connection.rollback();
+    const escrowResult = await client.query("SELECT * FROM escrow WHERE id = $1", [escrowId]);
+    if (escrowResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ message: "Escrow not found" });
     }
 
-    const escrow = rows[0];
+    const escrow = escrowResult.rows[0];
     if (escrow.status !== "pending") {
-      await connection.rollback();
+      await client.query('ROLLBACK');
       return res.status(400).json({ message: "Escrow already resolved" });
     }
 
-    // Credit seller - FIXED: Use "wallet" not "wallets"
-    await connection.execute(
-      "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
-      [escrow.amount, escrow.seller_id]
+    // Credit seller
+    await client.query(
+      "UPDATE wallet SET balance = balance + $1 WHERE user_id = $2",
+      [parseFloat(escrow.amount), escrow.seller_id]
     );
 
     // Update escrow
-    await connection.execute(
-      "UPDATE escrow SET status='released', released_at=NOW() WHERE id=?",
+    await client.query(
+      "UPDATE escrow SET status = 'released', released_at = NOW() WHERE id = $1",
       [escrowId]
     );
 
-    await connection.commit();
+    await client.query('COMMIT');
     res.json({ message: "Escrow released to seller" });
   } catch (err) {
-    await connection.rollback();
+    await client.query('ROLLBACK');
     console.error("Release Escrow Error:", err);
     res.status(500).json({ message: "Server error", error: err.message });
   } finally {
-    connection.release();
+    client.release();
   }
 };
 
 exports.refundEscrow = async (req, res) => {
-  const connection = await db.getConnection();
+  const client = await db.connect();
   try {
     const { escrowId } = req.body;
 
-    await connection.beginTransaction();
+    await client.query('BEGIN');
 
     // Find escrow
-    const [rows] = await connection.execute("SELECT * FROM escrow WHERE id=?", [escrowId]);
-    if (rows.length === 0) {
-      await connection.rollback();
+    const escrowResult = await client.query("SELECT * FROM escrow WHERE id = $1", [escrowId]);
+    if (escrowResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ message: "Escrow not found" });
     }
 
-    const escrow = rows[0];
+    const escrow = escrowResult.rows[0];
     if (escrow.status !== "pending") {
-      await connection.rollback();
+      await client.query('ROLLBACK');
       return res.status(400).json({ message: "Escrow already resolved" });
     }
 
-    // Refund buyer - FIXED: Use "wallet" not "wallets"
-    await connection.execute(
-      "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
-      [escrow.amount, escrow.buyer_id]
+    // Refund buyer
+    await client.query(
+      "UPDATE wallet SET balance = balance + $1 WHERE user_id = $2",
+      [parseFloat(escrow.amount), escrow.buyer_id]
     );
 
     // Update escrow
-    await connection.execute(
-      "UPDATE escrow SET status='refunded', released_at=NOW() WHERE id=?",
+    await client.query(
+      "UPDATE escrow SET status = 'refunded', released_at = NOW() WHERE id = $1",
       [escrowId]
     );
 
-    await connection.commit();
+    await client.query('COMMIT');
     res.json({ message: "Escrow refunded to buyer" });
   } catch (err) {
-    await connection.rollback();
+    await client.query('ROLLBACK');
     console.error("Refund Escrow Error:", err);
     res.status(500).json({ message: "Server error", error: err.message });
   } finally {
-    connection.release();
+    client.release();
   }
 };
 
@@ -1413,10 +1444,11 @@ exports.getEscrowById = async (req, res) => {
       LEFT JOIN products p ON o.product_id = p.id
       LEFT JOIN delivery_companies dc ON e.delivery_id = dc.id
       LEFT JOIN transactions t ON e.transaction_id = t.id
-      WHERE e.id = ?
+      WHERE e.id = $1
     `;
 
-    const [[escrow]] = await db.execute(escrowQuery, [escrowId]);
+    const escrowResult = await db.query(escrowQuery, [escrowId]);
+    const escrow = escrowResult.rows[0];
 
     if (!escrow) {
       return res.status(404).json({ message: "Escrow not found" });
@@ -1430,9 +1462,9 @@ exports.getEscrowById = async (req, res) => {
   }
 };
 
-// Update escrow status (you already have resolveDispute, but add this)
+// Update escrow status
 exports.updateEscrowStatus = async (req, res) => {
-  const connection = await db.getConnection();
+  const client = await db.connect();
   
   try {
     const { escrowId } = req.params;
@@ -1440,31 +1472,33 @@ exports.updateEscrowStatus = async (req, res) => {
 
     const validStatuses = ['pending', 'released', 'disputed', 'refunded', 'held'];
     if (!validStatuses.includes(status)) {
-      await connection.rollback();
+      await client.query('ROLLBACK');
       return res.status(400).json({ message: "Invalid status" });
     }
 
-    await connection.beginTransaction();
+    await client.query('BEGIN');
 
     // Get current escrow
-    const [[escrow]] = await connection.execute(
-      "SELECT * FROM escrow WHERE id = ?",
+    const escrowResult = await client.query(
+      "SELECT * FROM escrow WHERE id = $1",
       [escrowId]
     );
 
-    if (!escrow) {
-      await connection.rollback();
+    if (escrowResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ message: "Escrow not found" });
     }
 
+    const escrow = escrowResult.rows[0];
+
     // Update escrow status
-    await connection.execute(
+    await client.query(
       `UPDATE escrow 
-       SET status = ?, 
+       SET status = $1, 
            updated_at = NOW(),
-           ${status === 'released' || status === 'refunded' ? 'released_at = NOW(),' : ''}
-           notes = CONCAT(IFNULL(notes, ''), '\n', ?)
-       WHERE id = ?`,
+           released_at = CASE WHEN $1 IN ('released', 'refunded') THEN NOW() ELSE released_at END,
+           notes = CONCAT(COALESCE(notes, ''), '\n', $2)
+       WHERE id = $3`,
       [
         status,
         `[${new Date().toISOString()}] Status changed to ${status}: ${notes || 'No notes'}`,
@@ -1474,31 +1508,30 @@ exports.updateEscrowStatus = async (req, res) => {
 
     // Update related transaction if needed
     if (status === 'released' || status === 'refunded') {
-      await connection.execute(
-        "UPDATE transactions SET status = ? WHERE id = ?",
+      await client.query(
+        "UPDATE transactions SET status = $1 WHERE id = $2",
         [status === 'released' ? 'completed' : 'refunded', escrow.transaction_id]
       );
     }
 
     // Log the status change
-    await connection.execute(
+    await client.query(
       `INSERT INTO escrow_logs (escrow_id, action, details, admin_id, created_at)
-       VALUES (?, ?, ?, ?, NOW())`,
+       VALUES ($1, $2, $3, $4, NOW())`,
       [escrowId, 'status_update', `Status changed to ${status}: ${notes || 'No notes'}`, req.session.user?.id || 0]
     );
 
-    await connection.commit();
+    await client.query('COMMIT');
     res.json({ message: "Escrow status updated successfully" });
 
   } catch (err) {
-    await connection.rollback();
+    await client.query('ROLLBACK');
     console.error("Error in updateEscrowStatus:", err);
     res.status(500).json({ message: "Server error", error: err.message });
   } finally {
-    connection.release();
+    client.release();
   }
 };
-
 
 // ✅ Hardcoded Admin Credentials
 const ADMIN_CREDENTIALS = {
@@ -1561,12 +1594,6 @@ exports.getAdminProfile = (req, res) => {
 /* --------------------------------------------------
    ✅  ADMIN: Get All Pending Deposits
 -------------------------------------------------- */
-/* --------------------------------------------------
-   ✅  ADMIN: Get All Pending Deposits - FIXED
--------------------------------------------------- */
-/* --------------------------------------------------
-   ✅  ADMIN: Get All Pending Deposits - FIXED
--------------------------------------------------- */
 exports.getPendingDeposits = async (req, res) => {
   try {
     console.log("🔍 Pending deposits endpoint called");
@@ -1578,7 +1605,7 @@ exports.getPendingDeposits = async (req, res) => {
 
     console.log("📊 Fetching pending deposits from database...");
 
-    // FIX: Build the SQL query with actual values instead of placeholders
+    // PostgreSQL query with parameterized LIMIT/OFFSET
     const sql = `
       SELECT 
         d.id,
@@ -1595,26 +1622,27 @@ exports.getPendingDeposits = async (req, res) => {
         u.name as user_name,
         u.email as user_email,
         u.phone as user_phone
-       FROM deposits d
-       JOIN users u ON d.user_id = u.id
-       WHERE d.status = 'pending'
-       ORDER BY d.created_at ASC
-       LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
+      FROM deposits d
+      JOIN users u ON d.user_id = u.id
+      WHERE d.status = 'pending'
+      ORDER BY d.created_at ASC
+      LIMIT $1 OFFSET $2
     `;
     
     console.log("SQL Query:", sql);
     
-    // Execute without parameters
-    const [deposits] = await db.execute(sql);
+    // Execute with parameters
+    const depositsResult = await db.query(sql, [parseInt(limit), parseInt(offset)]);
+    const deposits = depositsResult.rows;
 
     console.log(`📊 Found ${deposits.length} pending deposits`);
 
     // Get total count
-    const [totalResult] = await db.execute(
+    const totalResult = await db.query(
       "SELECT COUNT(*) as total FROM deposits WHERE status = 'pending'"
     );
 
-    const total = totalResult[0]?.total || 0;
+    const total = parseInt(totalResult.rows[0]?.total) || 0;
     
     // Return simple data
     res.json({
@@ -1632,7 +1660,6 @@ exports.getPendingDeposits = async (req, res) => {
     console.error("Get pending deposits error:", err);
     console.error("Full error details:", {
       message: err.message,
-      sql: err.sql,
       code: err.code
     });
     res.status(500).json({ 
@@ -1646,11 +1673,8 @@ exports.getPendingDeposits = async (req, res) => {
 /* --------------------------------------------------
    ✅  ADMIN: Approve/Reject Deposit
 -------------------------------------------------- */
-/* --------------------------------------------------
-   ✅  ADMIN: Process Deposit (Approval/Rejection)
--------------------------------------------------- */
 exports.processDeposit = async (req, res) => {
-  const connection = await db.getConnection();
+  const client = await db.connect();
   
   try {
     const { deposit_id, action, notes } = req.body; // action: 'approve' or 'reject'
@@ -1659,51 +1683,51 @@ exports.processDeposit = async (req, res) => {
       return res.status(400).json({ message: "Valid deposit ID and action required" });
     }
 
-    await connection.beginTransaction();
+    await client.query('BEGIN');
 
     // Get deposit with user info
-    const [deposits] = await connection.execute(
+    const depositsResult = await client.query(
       `SELECT d.*, u.name as user_name 
        FROM deposits d 
        JOIN users u ON d.user_id = u.id 
-       WHERE d.id = ? AND d.status = 'pending'`,
+       WHERE d.id = $1 AND d.status = 'pending'`,
       [deposit_id]
     );
 
-    if (deposits.length === 0) {
-      await connection.rollback();
+    if (depositsResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ message: "Deposit not found or already processed" });
     }
 
-    const deposit = deposits[0];
+    const deposit = depositsResult.rows[0];
     const newStatus = action === 'approve' ? 'approved' : 'rejected';
 
     if (action === 'approve') {
       // ✅ Approve deposit - Credit user's wallet
       
       // Check if wallet exists, create if not
-      const [walletCheck] = await connection.execute(
-        "SELECT * FROM wallet WHERE user_id = ?",
+      const walletCheck = await client.query(
+        "SELECT * FROM wallet WHERE user_id = $1",
         [deposit.user_id]
       );
 
-      if (walletCheck.length === 0) {
-        await connection.execute(
-          "INSERT INTO wallet (user_id, balance) VALUES (?, ?)",
-          [deposit.user_id, deposit.amount]
+      if (walletCheck.rows.length === 0) {
+        await client.query(
+          "INSERT INTO wallet (user_id, balance) VALUES ($1, $2)",
+          [deposit.user_id, parseFloat(deposit.amount)]
         );
       } else {
         // Credit existing wallet
-        await connection.execute(
-          "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
-          [deposit.amount, deposit.user_id]
+        await client.query(
+          "UPDATE wallet SET balance = balance + $1 WHERE user_id = $2",
+          [parseFloat(deposit.amount), deposit.user_id]
         );
       }
 
       // Update transaction record if exists
       try {
-        await connection.execute(
-          "UPDATE transactions SET status = 'completed' WHERE deposit_id = ?",
+        await client.query(
+          "UPDATE transactions SET status = 'completed' WHERE deposit_id = $1",
           [deposit_id]
         );
       } catch (err) {
@@ -1714,8 +1738,8 @@ exports.processDeposit = async (req, res) => {
       // ❌ Reject deposit
       // Update transaction record if exists
       try {
-        await connection.execute(
-          "UPDATE transactions SET status = 'failed' WHERE deposit_id = ?",
+        await client.query(
+          "UPDATE transactions SET status = 'failed' WHERE deposit_id = $1",
           [deposit_id]
         );
       } catch (err) {
@@ -1724,23 +1748,23 @@ exports.processDeposit = async (req, res) => {
     }
 
     // Update deposit status
-    await connection.execute(
+    await client.query(
       `UPDATE deposits 
-       SET status = ?, approved_by = NULL, approved_at = NOW(), admin_notes = ?
-       WHERE id = ?`,
+       SET status = $1, approved_by = NULL, approved_at = NOW(), admin_notes = $2
+       WHERE id = $3`,
       [newStatus, notes || null, deposit_id]
     );
 
-    await connection.commit();
+    await client.query('COMMIT');
 
     // Get updated wallet balance if approved
     let newBalance = null;
     if (action === 'approve') {
-      const [walletRows] = await db.execute(
-        "SELECT balance FROM wallet WHERE user_id = ?",
+      const walletRows = await db.query(
+        "SELECT balance FROM wallet WHERE user_id = $1",
         [deposit.user_id]
       );
-      newBalance = walletRows[0]?.balance;
+      newBalance = walletRows.rows[0]?.balance;
     }
 
     res.json({
@@ -1749,16 +1773,16 @@ exports.processDeposit = async (req, res) => {
       data: {
         deposit_id: deposit_id,
         status: newStatus,
-        new_balance: newBalance
+        new_balance: newBalance ? parseFloat(newBalance) : null
       }
     });
 
   } catch (err) {
-    if (connection) await connection.rollback();
+    if (client) await client.query('ROLLBACK');
     console.error("Process deposit error:", err);
     res.status(500).json({ message: "Failed to process deposit" });
   } finally {
-    if (connection) connection.release();
+    if (client) client.release();
   }
 };
 
@@ -1776,29 +1800,30 @@ exports.getPendingWithdrawals = async (req, res) => {
 
     console.log("📊 Fetching pending withdrawals from database...");
 
-    // FIXED: Remove w.balance - it doesn't exist in withdrawals table
+    // PostgreSQL query with parameterized LIMIT/OFFSET
     const sql = `
       SELECT w.*, u.name as user_name, u.email, u.phone
       FROM withdrawals w
       JOIN users u ON w.user_id = u.id
       WHERE w.status = 'pending'
       ORDER BY w.created_at ASC
-      LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
+      LIMIT $1 OFFSET $2
     `;
     
     console.log("SQL Query:", sql);
     
-    // Execute without parameters
-    const [withdrawals] = await db.execute(sql);
+    // Execute with parameters
+    const withdrawalsResult = await db.query(sql, [parseInt(limit), parseInt(offset)]);
+    const withdrawals = withdrawalsResult.rows;
 
     console.log(`📊 Found ${withdrawals.length} pending withdrawals`);
 
     // Get total count
-    const [totalResult] = await db.execute(
+    const totalResult = await db.query(
       "SELECT COUNT(*) as total FROM withdrawals WHERE status = 'pending'"
     );
 
-    const total = totalResult[0]?.total || 0;
+    const total = parseInt(totalResult.rows[0]?.total) || 0;
     
     // Return simple data
     res.json({
@@ -1816,7 +1841,6 @@ exports.getPendingWithdrawals = async (req, res) => {
     console.error("Get pending withdrawals error:", err);
     console.error("Full error details:", {
       message: err.message,
-      sql: err.sql,
       code: err.code
     });
     res.status(500).json({ 
@@ -1831,7 +1855,7 @@ exports.getPendingWithdrawals = async (req, res) => {
    ✅  ADMIN: Process Withdrawal
 -------------------------------------------------- */
 exports.processWithdrawal = async (req, res) => {
-  const connection = await db.getConnection();
+  const client = await db.connect();
   
   try {
     const { withdrawal_id, action, transaction_reference, notes } = req.body;
@@ -1843,26 +1867,26 @@ exports.processWithdrawal = async (req, res) => {
       });
     }
 
-    await connection.beginTransaction();
+    await client.query('BEGIN');
 
     // Get withdrawal with user info
-    const [withdrawals] = await connection.execute(
+    const withdrawalsResult = await client.query(
       `SELECT w.*, u.name as user_name, u.email as user_email, u.phone as user_phone
        FROM withdrawals w
        JOIN users u ON w.user_id = u.id
-       WHERE w.id = ? AND w.status = 'pending'`,
+       WHERE w.id = $1 AND w.status = 'pending'`,
       [withdrawal_id]
     );
 
-    if (withdrawals.length === 0) {
-      await connection.rollback();
+    if (withdrawalsResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ 
         success: false,
         message: "Withdrawal not found or already processed" 
       });
     }
 
-    const withdrawal = withdrawals[0];
+    const withdrawal = withdrawalsResult.rows[0];
     let newStatus = 'pending';
     let message = "";
 
@@ -1872,15 +1896,15 @@ exports.processWithdrawal = async (req, res) => {
       message = "Withdrawal rejected";
       
       // Refund the amount back to wallet
-      await connection.execute(
-        "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
-        [withdrawal.amount, withdrawal.user_id]
+      await client.query(
+        "UPDATE wallet SET balance = balance + $1 WHERE user_id = $2",
+        [parseFloat(withdrawal.amount), withdrawal.user_id]
       );
       
       // Update transaction status if exists
       try {
-        await connection.execute(
-          "UPDATE transactions SET status = 'failed' WHERE withdrawal_id = ?",
+        await client.query(
+          "UPDATE transactions SET status = 'failed' WHERE withdrawal_id = $1",
           [withdrawal_id]
         );
       } catch (err) {
@@ -1894,8 +1918,8 @@ exports.processWithdrawal = async (req, res) => {
       
       // Update transaction status if exists
       try {
-        await connection.execute(
-          "UPDATE transactions SET status = 'processing' WHERE withdrawal_id = ?",
+        await client.query(
+          "UPDATE transactions SET status = 'processing' WHERE withdrawal_id = $1",
           [withdrawal_id]
         );
       } catch (err) {
@@ -1905,7 +1929,7 @@ exports.processWithdrawal = async (req, res) => {
     else if (action === 'mark_paid') {
       // Mark as paid (admin has made the transfer)
       if (!transaction_reference) {
-        await connection.rollback();
+        await client.query('ROLLBACK');
         return res.status(400).json({ 
           success: false,
           message: "Transaction reference is required when marking as paid" 
@@ -1917,8 +1941,8 @@ exports.processWithdrawal = async (req, res) => {
       
       // Update transaction status if exists
       try {
-        await connection.execute(
-          "UPDATE transactions SET status = 'completed' WHERE withdrawal_id = ?",
+        await client.query(
+          "UPDATE transactions SET status = 'completed' WHERE withdrawal_id = $1",
           [withdrawal_id]
         );
       } catch (err) {
@@ -1927,14 +1951,14 @@ exports.processWithdrawal = async (req, res) => {
     }
 
     // Update withdrawal status
-    await connection.execute(
+    await client.query(
       `UPDATE withdrawals 
-       SET status = ?, 
+       SET status = $1, 
            processed_by = NULL, 
            processed_at = NOW(), 
-           admin_notes = ?,
-           transaction_reference = COALESCE(?, transaction_reference)
-       WHERE id = ?`,
+           admin_notes = $2,
+           transaction_reference = COALESCE($3, transaction_reference)
+       WHERE id = $4`,
       [
         newStatus, 
         notes || null,
@@ -1943,7 +1967,7 @@ exports.processWithdrawal = async (req, res) => {
       ]
     );
 
-    await connection.commit();
+    await client.query('COMMIT');
 
     res.json({
       success: true,
@@ -1956,13 +1980,13 @@ exports.processWithdrawal = async (req, res) => {
     });
 
   } catch (err) {
-    if (connection) await connection.rollback();
+    if (client) await client.query('ROLLBACK');
     console.error("Process withdrawal error:", err);
     res.status(500).json({ 
       success: false,
       message: "Failed to process withdrawal" 
     });
   } finally {
-    if (connection) connection.release();
+    if (client) client.release();
   }
 };

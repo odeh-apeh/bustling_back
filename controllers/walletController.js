@@ -15,6 +15,7 @@ const generateInvoiceNumber = () => {
   const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
   return `INV-${timestamp}-${random}`;
 };
+
 /* --------------------------------------------------
    ✅  Get Wallet Balance
 -------------------------------------------------- */
@@ -24,16 +25,16 @@ exports.getBalance = async (req, res) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const [rows] = await db.execute(
-      "SELECT * FROM wallet WHERE user_id = ?",
+    const result = await db.query(
+      "SELECT * FROM wallet WHERE user_id = $1",
       [req.session.userId]
     );
 
-    if (rows.length === 0) {
+    if (result.rows.length === 0) {
       return res.status(404).json({ message: "Wallet not found" });
     }
 
-    res.json({ balance: rows[0].balance });
+    res.json({ balance: result.rows[0].balance });
   } catch (err) {
     console.error("Get Balance Error:", err);
     res.status(500).json({ message: "Server error" });
@@ -65,7 +66,7 @@ exports.getDepositAccount = async (req, res) => {
    ✅  Request Deposit (Generate Invoice)
 -------------------------------------------------- */
 exports.fundWallet = async (req, res) => {
-  const connection = await db.getConnection();
+  const client = await db.connect();
   
   try {
     console.log('✅ Deposit request received from user:', req.session.userId);
@@ -117,7 +118,7 @@ exports.fundWallet = async (req, res) => {
       });
     }
 
-    await connection.beginTransaction();
+    await client.query('BEGIN');
     console.log('🔒 Transaction started');
 
     // Generate unique invoice number
@@ -125,12 +126,12 @@ exports.fundWallet = async (req, res) => {
     console.log('📄 Generated invoice:', invoiceNumber);
     
     // Check for duplicate invoice (unlikely but safe)
-    const [existingInvoice] = await connection.execute(
-      "SELECT id FROM deposits WHERE invoice_number = ?",
+    const existingInvoice = await client.query(
+      "SELECT id FROM deposits WHERE invoice_number = $1",
       [invoiceNumber]
     );
     
-    if (existingInvoice.length > 0) {
+    if (existingInvoice.rows.length > 0) {
       // Regenerate if duplicate
       invoiceNumber = generateInvoiceNumber();
       console.log('🔄 Regenerated invoice:', invoiceNumber);
@@ -138,28 +139,29 @@ exports.fundWallet = async (req, res) => {
 
     // Create deposit request
     console.log('💾 Creating deposit record...');
-    const [result] = await connection.execute(
+    const result = await client.query(
       `INSERT INTO deposits 
        (user_id, invoice_number, amount, status) 
-       VALUES (?, ?, ?, 'pending')`,
+       VALUES ($1, $2, $3, 'pending')
+       RETURNING id`,
       [userId, invoiceNumber, amountNum]
     );
 
-    const depositId = result.insertId;
+    const depositId = result.rows[0].id;
     console.log('✅ Deposit created with ID:', depositId);
 
     // Get SYSTEM_USER_ID (usually 0 for system transactions)
     const SYSTEM_USER_ID = process.env.SYSTEM_USER_ID || 0;
 
-    // Log transaction
-    /*await connection.execute(
+    // Log transaction (commented out as in original)
+    /*await client.query(
       `INSERT INTO transactions 
        (sender_id, receiver_id, amount, type, status, deposit_id) 
-       VALUES (?, ?, ?, 'deposit', 'pending', ?)`,
+       VALUES ($1, $2, $3, 'deposit', 'pending', $4)`,
       [userId, SYSTEM_USER_ID, amountNum, depositId]
     );
-    console.log('📝 Transaction logged');
-*/
+    console.log('📝 Transaction logged');*/
+
     // Get deposit account details from environment variables or use defaults
     const depositAccount = {
       bank_name: process.env.DEPOSIT_BANK_NAME || "Moniepoint mfb",
@@ -167,7 +169,7 @@ exports.fundWallet = async (req, res) => {
       account_name: process.env.DEPOSIT_ACCOUNT_NAME || "Errandly Enterprises",
     };
 
-    await connection.commit();
+    await client.query('COMMIT');
     console.log('✅ Transaction committed');
 
     res.json({
@@ -187,9 +189,9 @@ exports.fundWallet = async (req, res) => {
     console.error("❌ Request deposit error:", err);
     console.error("❌ Error details:", err.message);
     
-    if (connection) {
+    if (client) {
       try {
-        await connection.rollback();
+        await client.query('ROLLBACK');
         console.log('🔄 Transaction rolled back');
       } catch (rollbackErr) {
         console.error('❌ Rollback error:', rollbackErr);
@@ -201,9 +203,9 @@ exports.fundWallet = async (req, res) => {
       message: "Failed to create deposit request",
     });
   } finally {
-    if (connection) {
+    if (client) {
       try {
-        connection.release();
+        client.release();
         console.log('🔓 Connection released');
       } catch (releaseErr) {
         console.error('❌ Connection release error:', releaseErr);
@@ -213,7 +215,7 @@ exports.fundWallet = async (req, res) => {
 };
 
 exports.requestWithdrawal = async (req, res) => {
-  const connection = await db.getConnection();
+  const client = await db.connect();
   
   try {
     console.log("Withdrawal request - Session userId:", req.session.userId);
@@ -288,38 +290,39 @@ exports.requestWithdrawal = async (req, res) => {
       });
     }
 
-    await connection.beginTransaction();
+    await client.query('BEGIN');
 
     // Check wallet balance
-    const [walletRows] = await connection.execute(
-      "SELECT balance FROM wallet WHERE user_id = ?",
+    const walletResult = await client.query(
+      "SELECT balance FROM wallet WHERE user_id = $1",
       [userId]
     );
     
-    if (walletRows.length === 0) {
-      await connection.rollback();
+    if (walletResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ 
         success: false,
         message: "Wallet not found" 
       });
     }
     
-    const wallet = walletRows[0];
+    const wallet = walletResult.rows[0];
     
     // Check if user has sufficient balance
-    if (wallet.balance < amountNum) {
-      await connection.rollback();
+    if (parseFloat(wallet.balance) < amountNum) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ 
         success: false,
-        message: `Insufficient funds. Available: ₦${wallet.balance.toLocaleString()}` 
+        message: `Insufficient funds. Available: ₦${parseFloat(wallet.balance).toLocaleString()}` 
       });
     }
 
     // Create withdrawal request
-    const [result] = await connection.execute(
+    const result = await client.query(
       `INSERT INTO withdrawals 
        (user_id, amount, bank_name, bank_code, account_number, account_name) 
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
       [
         userId, 
         amountNum, 
@@ -330,20 +333,20 @@ exports.requestWithdrawal = async (req, res) => {
       ]
     );
 
-    const withdrawalId = result.insertId;
+    const withdrawalId = result.rows[0].id;
 
     // Deduct amount from wallet
-    await connection.execute(
-      "UPDATE wallet SET balance = balance - ? WHERE user_id = ?",
+    await client.query(
+      "UPDATE wallet SET balance = balance - $1 WHERE user_id = $2",
       [amountNum, userId]
     );
 
-    // Create transaction record
+    // Create transaction record (commented out as in original)
    /* try {
-      await connection.execute(
+      await client.query(
         `INSERT INTO transactions 
          (user_id, amount, type, status, withdrawal_id, description) 
-         VALUES (?, ?, 'withdrawal', 'pending', ?, ?)`,
+         VALUES ($1, $2, 'withdrawal', 'pending', $3, $4)`,
         [
           userId, 
           amountNum,
@@ -354,13 +357,13 @@ exports.requestWithdrawal = async (req, res) => {
     } catch (txnErr) {
       console.log("Note: Could not create transaction record:", txnErr.message);
       // Continue even if transaction record fails
-    }
-*/
-    await connection.commit();
+    }*/
+
+    await client.query('COMMIT');
 
     // Get updated balance
-    const [updatedWallet] = await connection.execute(
-      "SELECT balance FROM wallet WHERE user_id = ?",
+    const updatedWallet = await client.query(
+      "SELECT balance FROM wallet WHERE user_id = $1",
       [userId]
     );
 
@@ -376,19 +379,17 @@ exports.requestWithdrawal = async (req, res) => {
           account_number: account_number
         },
         status: 'pending',
-        previous_balance: wallet.balance,
-        new_balance: updatedWallet[0].balance,
+        previous_balance: parseFloat(wallet.balance),
+        new_balance: parseFloat(updatedWallet.rows[0].balance),
         created_at: new Date().toISOString()
       }
     });
 
   } catch (err) {
-    if (connection) await connection.rollback();
+    if (client) await client.query('ROLLBACK');
     console.error("Request withdrawal error details:", {
       message: err.message,
-      sql: err.sql,
-      code: err.code,
-      errno: err.errno
+      code: err.code
     });
     res.status(500).json({ 
       success: false,
@@ -396,9 +397,10 @@ exports.requestWithdrawal = async (req, res) => {
       error: err.message
     });
   } finally {
-    if (connection) connection.release();
+    if (client) client.release();
   }
 };
+
 /* --------------------------------------------------
    ✅  Get User Deposit History
 -------------------------------------------------- */
@@ -411,6 +413,8 @@ exports.getUserDeposits = async (req, res) => {
     const userId = req.session.userId;
     const { page = 1, limit = 20, status } = req.query;
     const offset = (page - 1) * limit;
+    const pageLimit = parseInt(limit);
+    const pageOffset = parseInt(offset);
 
     let query = `
       SELECT d.*, u.name as user_name, u.email, 
@@ -418,27 +422,34 @@ exports.getUserDeposits = async (req, res) => {
       FROM deposits d
       LEFT JOIN users u ON d.user_id = u.id
       LEFT JOIN users admin ON d.approved_by = admin.id
-      WHERE d.user_id = ?
+      WHERE d.user_id = $1
     `;
     
     const params = [userId];
+    let paramCounter = 2;
     
     if (status && ['pending', 'approved', 'rejected', 'cancelled'].includes(status)) {
-      query += " AND d.status = ?";
+      query += ` AND d.status = $${paramCounter}`;
       params.push(status);
+      paramCounter++;
     }
     
-    query += " ORDER BY d.created_at DESC LIMIT ? OFFSET ?";
-    params.push(parseInt(limit), parseInt(offset));
+    query += ` ORDER BY d.created_at DESC LIMIT $${paramCounter} OFFSET $${paramCounter + 1}`;
+    params.push(pageLimit, pageOffset);
 
-    const [deposits] = await db.execute(query, params);
+    const depositsResult = await db.query(query, params);
+    const deposits = depositsResult.rows;
 
-    const [totalResult] = await db.execute(
-      `SELECT COUNT(*) as total 
-       FROM deposits 
-       WHERE user_id = ? ${status ? 'AND status = ?' : ''}`,
-      status ? [userId, status] : [userId]
-    );
+    // Count query
+    let countQuery = `SELECT COUNT(*) as total FROM deposits WHERE user_id = $1`;
+    const countParams = [userId];
+    
+    if (status && ['pending', 'approved', 'rejected', 'cancelled'].includes(status)) {
+      countQuery += ` AND status = $2`;
+      countParams.push(status);
+    }
+    
+    const totalResult = await db.query(countQuery, countParams);
 
     res.json({
       success: true,
@@ -448,9 +459,9 @@ exports.getUserDeposits = async (req, res) => {
       })),
       pagination: {
         page: parseInt(page),
-        limit: parseInt(limit),
-        total: totalResult[0].total,
-        totalPages: Math.ceil(totalResult[0].total / limit)
+        limit: pageLimit,
+        total: parseInt(totalResult.rows[0].total),
+        totalPages: Math.ceil(parseInt(totalResult.rows[0].total) / pageLimit)
       }
     });
 
@@ -460,261 +471,11 @@ exports.getUserDeposits = async (req, res) => {
   }
 };
 
-
-/* --------------------------------------------------
-   ✅  Fund Wallet (Initialize Paystack)
--------------------------------------------------- */
-/*exports.fundWallet = async (req, res) => {
-  try {
-    if (!req.session.userId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    const { amount, email } = req.body;
-    if (!amount || !email) {
-      return res.status(400).json({ message: "Amount and email required" });
-    }
-
-    const response = await axios.post(
-      "https://api.paystack.co/transaction/initialize",
-      {
-        email,
-        amount: amount * 100, // Paystack uses kobo
-        // Remove callback_url for WebView approach
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${PAYSTACK_SECRET}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    res.json({
-      authorization_url: response.data.data.authorization_url,
-      reference: response.data.data.reference,
-    });
-  } catch (err) {
-    console.error("Fund Wallet Error:", err.response?.data || err.message);
-    res.status(500).json({ message: "Payment initialization failed" });
-  }
-};
-
-/* --------------------------------------------------
-   ✅  Paystack Webhook (Verify Payment)
--------------------------------------------------- */
-/* --------------------------------------------------
-   ✅  Paystack Webhook (Verify Payment) - UPDATED
--------------------------------------------------- */
-/* exports.verifyPayment = async (req, res) => {
-  let connection;
-  
-  try {
-    // Verify webhook signature
-    const hash = crypto
-      .createHmac("sha512", PAYSTACK_SECRET)
-      .update(JSON.stringify(req.body))
-      .digest("hex");
-
-    if (hash !== req.headers["x-paystack-signature"]) {
-      console.error("Invalid webhook signature");
-      return res.status(400).json({ message: "Invalid signature" });
-    }
-
-    const event = req.body;
-    console.log("Webhook received:", event.event);
-
-    if (event.event === "charge.success") {
-      const paymentData = event.data;
-      const amount = paymentData.amount / 100;
-      const email = paymentData.customer.email;
-      const reference = paymentData.reference;
-
-      console.log(`Processing payment: ${reference}, Amount: ${amount}, Email: ${email}`);
-
-      // Find user
-      const [user] = await db.execute("SELECT id FROM users WHERE email = ?", [email]);
-      if (user.length === 0) {
-        console.error(`User not found for email: ${email}`);
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      const userId = user[0].id;
-      connection = await db.getConnection();
-
-      await connection.beginTransaction();
-
-      // Check if already processed
-      const [existingTx] = await connection.execute(
-        "SELECT id FROM transactions WHERE reference = ? AND status = 'completed'",
-        [reference]
-      );
-
-      if (existingTx.length > 0) {
-        console.log(`Payment ${reference} already processed`);
-        await connection.rollback();
-        return res.sendStatus(200);
-      }
-
-      // Check if wallet exists, create if not
-      const [walletCheck] = await connection.execute(
-        "SELECT id FROM wallet WHERE user_id = ?",
-        [userId]
-      );
-
-      if (walletCheck.length === 0) {
-        await connection.execute(
-          "INSERT INTO wallet (user_id, balance) VALUES (?, ?)",
-          [userId, amount]
-        );
-      } else {
-        // Credit existing wallet
-        await connection.execute(
-          "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
-          [amount, userId]
-        );
-      }
-
-      // Log transaction
-      await connection.execute(
-        `INSERT INTO transactions 
-         (sender_id, receiver_id, amount, type, status, reference) 
-         VALUES (?, ?, ?, 'funding', 'completed', ?)`,
-        [userId, userId, amount, reference]
-      );
-
-      await connection.commit();
-      console.log(`Successfully processed payment ${reference} for user ${userId}`);
-    }
-
-    res.sendStatus(200);
-
-  } catch (err) {
-    console.error("Verify Payment Webhook Error:", err.message);
-    
-    if (connection) {
-      await connection.rollback();
-      connection.release();
-    }
-    
-    res.sendStatus(500);
-  }
-};
-*/
-/* --------------------------------------------------
-   ✅  Verify Payment (For Frontend)
--------------------------------------------------- */
-/*exports.verifyPaymentFrontend = async (req, res) => {
-  try {
-    if (!req.session.userId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    const { reference } = req.query || req.body;
-    
-    if (!reference) {
-      return res.status(400).json({ message: "Payment reference required" });
-    }
-
-    // Verify with Paystack
-    const response = await axios.get(
-      `https://api.paystack.co/transaction/verify/${reference}`,
-      {
-        headers: {
-          Authorization: `Bearer ${PAYSTACK_SECRET}`,
-        },
-      }
-    );
-
-    if (!response.data.status || response.data.data.status !== "success") {
-      return res.status(400).json({ 
-        message: "Payment verification failed",
-        data: response.data 
-      });
-    }
-
-    const paymentData = response.data.data;
-    const amount = paymentData.amount / 100;
-    const email = paymentData.customer.email;
-
-    // Find user
-    const [user] = await db.execute("SELECT id FROM users WHERE email = ?", [email]);
-    if (user.length === 0) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    const userId = user[0].id;
-    const connection = await db.getConnection();
-
-    try {
-      await connection.beginTransaction();
-
-      // Check if transaction already processed
-      const [existingTx] = await connection.execute(
-        "SELECT id FROM transactions WHERE reference = ? AND status = 'completed'",
-        [reference]
-      );
-
-      if (existingTx.length > 0) {
-        await connection.rollback();
-        return res.json({ 
-          message: "Payment already processed",
-          success: true 
-        });
-      }
-
-      // ✅ Credit wallet
-      await connection.execute(
-        "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
-        [amount, userId]
-      );
-
-      // ✅ Log transaction
-      await connection.execute(
-        `INSERT INTO transactions 
-        (sender_id, receiver_id, amount, type, status, reference) 
-        VALUES (?, ?, ?, 'funding', 'completed', ?)`,
-      [userId, userId, amount, reference] // sender_id = receiver_id = userId
-      );
-
-      await connection.commit();
-
-      // Get updated balance
-      const [walletRows] = await connection.execute(
-        "SELECT balance FROM wallet WHERE user_id = ?",
-        [userId]
-      );
-
-      res.json({
-        success: true,
-        message: "Wallet funded successfully",
-        amount,
-        newBalance: walletRows[0].balance,
-      });
-
-    } catch (err) {
-      await connection.rollback();
-      throw err;
-    } finally {
-      connection.release();
-    }
-
-  } catch (err) {
-    console.error("Verify Payment Frontend Error:", err.response?.data || err.message);
-    res.status(500).json({ 
-      message: "Payment verification failed",
-      error: err.message 
-    });
-  }
-};
-*/
 /* --------------------------------------------------
    ✅  Purchase Item (Funds into Escrow)
 -------------------------------------------------- */
-// ✅ Purchase Item (money goes into escrow)
-// In walletController.js - Update the purchase function
 exports.purchase = async (req, res) => {
-  const connection = await db.getConnection();
+  const client = await db.connect();
   try {
     const { productId } = req.params;
     const buyerId = req.session.userId;
@@ -744,7 +505,7 @@ exports.purchase = async (req, res) => {
       });
     }
 
-    await connection.beginTransaction();
+    await client.query('BEGIN');
 
     // Log the exact SQL query we're about to run
     const productQuery = `SELECT 
@@ -755,42 +516,42 @@ exports.purchase = async (req, res) => {
       u.name as seller_name
     FROM products p
     LEFT JOIN users u ON p.seller_id = u.id
-    WHERE p.id = ?`;
+    WHERE p.id = $1`;
     
     console.log('Executing product query:', productQuery);
     console.log('With parameter:', productId);
 
     // Get product details
-    const [productRows] = await connection.execute(productQuery, [productId]);
+    const productResult = await client.query(productQuery, [productId]);
     
-    console.log('Product query result count:', productRows.length);
-    console.log('Product query result:', productRows);
+    console.log('Product query result count:', productResult.rows.length);
+    console.log('Product query result:', productResult.rows);
     
-    if (productRows.length === 0) {
-      await connection.rollback();
+    if (productResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       
       // Let's check if the product exists at all in the database
-      const [allProducts] = await connection.execute(
-        'SELECT id, name FROM products WHERE id = ?',
+      const allProducts = await client.query(
+        'SELECT id, name FROM products WHERE id = $1',
         [productId]
       );
       
-      console.log('Direct product check:', allProducts);
+      console.log('Direct product check:', allProducts.rows);
       
       return res.status(404).json({ 
         success: false,
         message: `Product not found with ID: ${productId}`,
         debug: {
           productId: productId,
-          existsInDB: allProducts.length > 0 ? 'Yes' : 'No',
-          allProducts: allProducts
+          existsInDB: allProducts.rows.length > 0 ? 'Yes' : 'No',
+          allProducts: allProducts.rows
         }
       });
     }
 
-    const product = productRows[0];
+    const product = productResult.rows[0];
     const sellerId = product.seller_id;
-    const amount = product.price * quantity;
+    const amount = parseFloat(product.price) * quantity;
 
     console.log('Product found:', {
       id: product.id,
@@ -802,16 +563,16 @@ exports.purchase = async (req, res) => {
     });
 
     // Check buyer balance
-    const [walletRows] = await connection.execute(
-      "SELECT balance FROM wallet WHERE user_id = ?",
+    const walletResult = await client.query(
+      "SELECT balance FROM wallet WHERE user_id = $1",
       [buyerId]
     );
     
-    console.log('Wallet check result:', walletRows);
+    console.log('Wallet check result:', walletResult.rows);
     
     // Check if wallet exists
-    if (walletRows.length === 0) {
-      await connection.rollback();
+    if (walletResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       console.log('Wallet not found for user:', buyerId);
       return res.status(400).json({ 
         success: false,
@@ -822,22 +583,23 @@ exports.purchase = async (req, res) => {
       });
     }
     
-    console.log('Wallet balance:', walletRows[0].balance);
+    const currentBalance = parseFloat(walletResult.rows[0].balance);
+    console.log('Wallet balance:', currentBalance);
     console.log('Required amount:', amount);
     
-    if (walletRows[0].balance < amount) {
-      await connection.rollback();
+    if (currentBalance < amount) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ 
         success: false,
-        message: `Insufficient funds. You need ₦${amount} but have ₦${walletRows[0].balance}`,
-        currentBalance: walletRows[0].balance,
+        message: `Insufficient funds. You need ₦${amount} but have ₦${currentBalance}`,
+        currentBalance: currentBalance,
         requiredAmount: amount
       });
     }
 
     // Deduct from buyer
-    await connection.execute(
-      "UPDATE wallet SET balance = balance - ? WHERE user_id = ?",
+    await client.query(
+      "UPDATE wallet SET balance = balance - $1 WHERE user_id = $2",
       [amount, buyerId]
     );
 
@@ -847,12 +609,13 @@ exports.purchase = async (req, res) => {
     const orderQuery = `INSERT INTO orders 
        (buyer_id, seller_id, product_id, type, quantity, total, 
         shipping_address, payment_method, notes, payment_status)
-       VALUES (?, ?, ?, 'product', ?, ?, ?, 'wallet', ?, 'pending')`;
+       VALUES ($1, $2, $3, 'product', $4, $5, $6, 'wallet', $7, 'pending')
+       RETURNING id`;
     
     console.log('Creating order with query:', orderQuery);
     console.log('Order parameters:', [buyerId, sellerId, productId, quantity, amount, shipping_address, notes]);
 
-    const [orderResult] = await connection.execute(orderQuery, [
+    const orderResult = await client.query(orderQuery, [
       buyerId, 
       sellerId, 
       productId, 
@@ -862,31 +625,32 @@ exports.purchase = async (req, res) => {
       notes
     ]);
     
-    const orderId = orderResult.insertId;
+    const orderId = orderResult.rows[0].id;
     console.log('Order created with ID:', orderId);
 
     // 2. Create transaction
-    const [transactionResult] = await connection.execute(
+    const transactionResult = await client.query(
       `INSERT INTO transactions 
        (sender_id, receiver_id, amount, type, status, product_id)
-       VALUES (?, ?, ?, 'purchase', 'pending', ? )`,
+       VALUES ($1, $2, $3, 'purchase', 'pending', $4)
+       RETURNING id`,
       [buyerId, sellerId, amount, productId]
     );
     
-    const transactionId = transactionResult.insertId;
+    const transactionId = transactionResult.rows[0].id;
     console.log('Transaction created with ID:', transactionId);
 
     // 3. Create escrow linked to order
-    await connection.execute(
+    await client.query(
       `INSERT INTO escrow 
        (buyer_id, seller_id, transaction_id, order_id, amount, status, type)
-       VALUES (?, ?, ?, ?, ?, 'pending', 'order')`,
+       VALUES ($1, $2, $3, $4, $5, 'pending', 'order')`,
       [buyerId, sellerId, transactionId, orderId, amount]
     );
 
     console.log('Escrow created successfully');
 
-    await connection.commit();
+    await client.query('COMMIT');
     
     console.log('=== PURCHASE COMPLETED SUCCESSFULLY ===');
     
@@ -908,7 +672,7 @@ exports.purchase = async (req, res) => {
       }
     });
   } catch (err) {
-    await connection.rollback();
+    await client.query('ROLLBACK');
     console.error('=== PURCHASE ERROR ===');
     console.error('Error details:', err);
     console.error('Error stack:', err.stack);
@@ -919,13 +683,13 @@ exports.purchase = async (req, res) => {
       error: err.message
     });
   } finally {
-    connection.release();
+    client.release();
   }
 };
 
 // Add this to your walletController.js
 exports.bookService = async (req, res) => {
-  const connection = await db.getConnection();
+  const client = await db.connect();
   try {
     const { serviceId } = req.params;
     const buyerId = req.session.userId;
@@ -964,7 +728,7 @@ exports.bookService = async (req, res) => {
       });
     }
 
-    await connection.beginTransaction();
+    await client.query('BEGIN');
 
     // Get service details
     const serviceQuery = `SELECT 
@@ -975,44 +739,44 @@ exports.bookService = async (req, res) => {
       u.name as seller_name
     FROM products p
     LEFT JOIN users u ON p.seller_id = u.id
-    WHERE p.id = ?`;
+    WHERE p.id = $1`;
     
     console.log('Executing service query:', serviceQuery);
     console.log('With parameter:', serviceId);
 
     // Get service details
-    const [serviceRows] = await connection.execute(serviceQuery, [serviceId]);
+    const serviceResult = await client.query(serviceQuery, [serviceId]);
     
-    console.log('Service query result count:', serviceRows.length);
-    console.log('Service query result:', serviceRows);
+    console.log('Service query result count:', serviceResult.rows.length);
+    console.log('Service query result:', serviceResult.rows);
     
-    if (serviceRows.length === 0) {
-      await connection.rollback();
+    if (serviceResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       
       // Let's check if the service exists at all in the database
-      const [allServices] = await connection.execute(
-        'SELECT id, name FROM products WHERE id = ?',
+      const allServices = await client.query(
+        'SELECT id, name FROM products WHERE id = $1',
         [serviceId]
       );
       
-      console.log('Direct service check:', allServices);
+      console.log('Direct service check:', allServices.rows);
       
       return res.status(404).json({ 
         success: false,
         message: `Service not found with ID: ${serviceId}`,
         debug: {
           serviceId: serviceId,
-          existsInDB: allServices.length > 0 ? 'Yes' : 'No',
-          allServices: allServices
+          existsInDB: allServices.rows.length > 0 ? 'Yes' : 'No',
+          allServices: allServices.rows
         }
       });
     }
 
-    const service = serviceRows[0];
+    const service = serviceResult.rows[0];
     const sellerId = service.seller_id;
     
     // Use agreed_price if provided, otherwise use service price
-    const amount = agreed_price ? parseFloat(agreed_price) : (service.price * quantity);
+    const amount = agreed_price ? parseFloat(agreed_price) : (parseFloat(service.price) * quantity);
 
     console.log('Service found:', {
       id: service.id,
@@ -1025,16 +789,16 @@ exports.bookService = async (req, res) => {
     });
 
     // Check buyer balance
-    const [walletRows] = await connection.execute(
-      "SELECT balance FROM wallet WHERE user_id = ?",
+    const walletResult = await client.query(
+      "SELECT balance FROM wallet WHERE user_id = $1",
       [buyerId]
     );
     
-    console.log('Wallet check result:', walletRows);
+    console.log('Wallet check result:', walletResult.rows);
     
     // Check if wallet exists
-    if (walletRows.length === 0) {
-      await connection.rollback();
+    if (walletResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       console.log('Wallet not found for user:', buyerId);
       return res.status(400).json({ 
         success: false,
@@ -1045,22 +809,23 @@ exports.bookService = async (req, res) => {
       });
     }
     
-    console.log('Wallet balance:', walletRows[0].balance);
+    const currentBalance = parseFloat(walletResult.rows[0].balance);
+    console.log('Wallet balance:', currentBalance);
     console.log('Required amount:', amount);
     
-    if (walletRows[0].balance < amount) {
-      await connection.rollback();
+    if (currentBalance < amount) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ 
         success: false,
-        message: `Insufficient funds. You need ₦${amount} but have ₦${walletRows[0].balance}`,
-        currentBalance: walletRows[0].balance,
+        message: `Insufficient funds. You need ₦${amount} but have ₦${currentBalance}`,
+        currentBalance: currentBalance,
         requiredAmount: amount
       });
     }
 
     // Deduct from buyer
-    await connection.execute(
-      "UPDATE wallet SET balance = balance - ? WHERE user_id = ?",
+    await client.query(
+      "UPDATE wallet SET balance = balance - $1 WHERE user_id = $2",
       [amount, buyerId]
     );
 
@@ -1070,12 +835,13 @@ exports.bookService = async (req, res) => {
     const orderQuery = `INSERT INTO orders 
        (buyer_id, seller_id, product_id, type, quantity, total, 
         shipping_address, payment_method, notes, payment_status)
-       VALUES (?, ?, ?, 'service', ?, ?, ?, 'wallet', ?, 'pending')`;
+       VALUES ($1, $2, $3, 'service', $4, $5, $6, 'wallet', $7, 'pending')
+       RETURNING id`;
     
     console.log('Creating service order with query:', orderQuery);
     console.log('Order parameters:', [buyerId, sellerId, serviceId, quantity, amount, shipping_address, notes]);
 
-    const [orderResult] = await connection.execute(orderQuery, [
+    const orderResult = await client.query(orderQuery, [
       buyerId, 
       sellerId, 
       serviceId, 
@@ -1085,31 +851,32 @@ exports.bookService = async (req, res) => {
       notes
     ]);
     
-    const orderId = orderResult.insertId;
+    const orderId = orderResult.rows[0].id;
     console.log('Service order created with ID:', orderId);
 
     // 2. Create transaction
-    const [transactionResult] = await connection.execute(
+    const transactionResult = await client.query(
       `INSERT INTO transactions 
        (sender_id, receiver_id, amount, type, status, product_id)
-       VALUES (?, ?, ?, 'purchase', 'pending', ? )`,
+       VALUES ($1, $2, $3, 'purchase', 'pending', $4)
+       RETURNING id`,
       [buyerId, sellerId, amount, serviceId]
     );
     
-    const transactionId = transactionResult.insertId;
+    const transactionId = transactionResult.rows[0].id;
     console.log('Transaction created with ID:', transactionId);
 
     // 3. Create escrow linked to order
-    await connection.execute(
+    await client.query(
       `INSERT INTO escrow 
        (buyer_id, seller_id, transaction_id, order_id, amount, status, type)
-       VALUES (?, ?, ?, ?, ?, 'pending', 'order')`,
+       VALUES ($1, $2, $3, $4, $5, 'pending', 'order')`,
       [buyerId, sellerId, transactionId, orderId, amount]
     );
 
     console.log('Escrow created successfully');
 
-    await connection.commit();
+    await client.query('COMMIT');
     
     console.log('=== SERVICE BOOKING COMPLETED SUCCESSFULLY ===');
     
@@ -1134,7 +901,7 @@ exports.bookService = async (req, res) => {
       }
     });
   } catch (err) {
-    await connection.rollback();
+    await client.query('ROLLBACK');
     console.error('=== SERVICE BOOKING ERROR ===');
     console.error('Error details:', err);
     console.error('Error stack:', err.stack);
@@ -1145,19 +912,15 @@ exports.bookService = async (req, res) => {
       error: err.message
     });
   } finally {
-    connection.release();
+    client.release();
   }
 };
 
-
-/* --------------------------------------------------
-   ✅  Confirm Received (Release to Seller)
--------------------------------------------------- */
 /* --------------------------------------------------
    ✅  Confirm Received (Release to Seller)
 -------------------------------------------------- */
 exports.confirmReceived = async (req, res) => {
-  const connection = await db.getConnection();
+  const client = await db.connect();
   try {
     if (!req.session.userId) {
       return res.status(401).json({ 
@@ -1166,21 +929,21 @@ exports.confirmReceived = async (req, res) => {
       });
     }
 
-    const { orderId } = req.body; // Change to accept orderId
+    const { orderId } = req.body;
     const buyerId = req.session.userId;
 
     console.log('Confirm received request:', { orderId, buyerId });
 
-    await connection.beginTransaction();
+    await client.query('BEGIN');
 
     // Get escrow record using orderId
-    const [escrowRows] = await connection.execute(
-      "SELECT * FROM escrow WHERE order_id=? AND buyer_id=? AND status='pending'",
+    const escrowResult = await client.query(
+      "SELECT * FROM escrow WHERE order_id=$1 AND buyer_id=$2 AND status='pending'",
       [orderId, buyerId]
     );
     
-    if (escrowRows.length === 0) {
-      await connection.rollback();
+    if (escrowResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       console.log('Escrow not found for order:', orderId, 'buyer:', buyerId);
       return res.status(404).json({ 
         success: false,
@@ -1188,36 +951,36 @@ exports.confirmReceived = async (req, res) => {
       });
     }
     
-    const escrow = escrowRows[0];
+    const escrow = escrowResult.rows[0];
     console.log('Found escrow:', escrow);
 
     // 1. Release funds to seller
-    await connection.execute(
-      "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
-      [escrow.amount, escrow.seller_id]
+    await client.query(
+      "UPDATE wallet SET balance = balance + $1 WHERE user_id = $2",
+      [parseFloat(escrow.amount), escrow.seller_id]
     );
     
     console.log('Funds released to seller:', escrow.seller_id, 'Amount:', escrow.amount);
 
     // 2. Update escrow status
-    await connection.execute(
-      "UPDATE escrow SET status='released', released_at=NOW() WHERE id=?",
+    await client.query(
+      "UPDATE escrow SET status='released', released_at=NOW() WHERE id=$1",
       [escrow.id]
     );
     
     // 3. Update transaction status
-    await connection.execute(
-      "UPDATE transactions SET status='completed' WHERE id=?",
+    await client.query(
+      "UPDATE transactions SET status='completed' WHERE id=$1",
       [escrow.transaction_id]
     );
     
     // 4. Update order payment status
-    await connection.execute(
-      "UPDATE orders SET payment_status='paid' WHERE id=?",
+    await client.query(
+      "UPDATE orders SET payment_status='paid' WHERE id=$1",
       [orderId]
     );
 
-    await connection.commit();
+    await client.query('COMMIT');
     
     console.log('Funds released successfully for order:', orderId);
     
@@ -1227,13 +990,13 @@ exports.confirmReceived = async (req, res) => {
       data: {
         orderId: orderId,
         escrowId: escrow.id,
-        amount: escrow.amount,
+        amount: parseFloat(escrow.amount),
         sellerId: escrow.seller_id
       }
     });
     
   } catch (err) {
-    await connection.rollback();
+    await client.query('ROLLBACK');
     console.error("Confirm Received Error:", err);
     res.status(500).json({ 
       success: false,
@@ -1241,119 +1004,16 @@ exports.confirmReceived = async (req, res) => {
       error: err.message 
     });
   } finally {
-    connection.release();
+    client.release();
   }
 };
 
-
-  // ✅  Raise a Dispute
-
-// In walletController.js - Update raiseDispute function
-/*exports.raiseDispute = async (req, res) => {
-  try {
-    if (!req.session.userId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    // Accept orderId instead of escrowId
-    const { orderId, disputeType, title, description, evidenceUrls } = req.body;
-    const userId = req.session.userId;
-
-    const connection = await db.getConnection();
-    
-    try {
-      await connection.beginTransaction();
-
-      // 1. Find escrow by order_id
-      const [escrowRows] = await connection.execute(
-        `SELECT e.*, o.buyer_id, o.seller_id, o.delivery_company_id
-         FROM escrow e
-         JOIN orders o ON e.order_id = o.id
-         WHERE e.order_id = ? AND (o.buyer_id = ? OR o.seller_id = ?)`,
-        [orderId, userId, userId]
-      );
-      
-      if (escrowRows.length === 0) {
-        await connection.rollback();
-        return res.status(404).json({ 
-          message: "Escrow not found for this order or you don't have permission" 
-        });
-      }
-
-      const escrow = escrowRows[0];
-      const escrowId = escrow.id;
-      
-      // 2. Determine who is raising the dispute and who is being disputed
-      let raisedByRole, disputedUserId;
-      
-      if (userId === escrow.buyer_id) {
-        raisedByRole = 'buyer';
-        disputedUserId = escrow.seller_id;
-      } else if (userId === escrow.seller_id) {
-        raisedByRole = 'seller';
-        disputedUserId = escrow.buyer_id;
-      } else if (escrow.delivery_company_id && userId === escrow.delivery_company_id) {
-        raisedByRole = 'delivery_agent';
-        disputedUserId = escrow.buyer_id; // or seller depending on context
-      } else {
-        await connection.rollback();
-        return res.status(403).json({ message: "You are not part of this transaction" });
-      }
-
-      // 3. Update escrow status
-      await connection.execute(
-        "UPDATE escrow SET status = 'disputed' WHERE id = ?",
-        [escrowId]
-      );
-
-      // 4. Create dispute record
-      await connection.execute(
-        `INSERT INTO disputes (
-          order_id, escrow_id, raised_by_id, disputed_user_id, raised_by_role,
-          dispute_type, title, description, evidence_urls, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-        [
-          orderId || escrow.order_id,
-          escrowId,
-          userId,
-          disputedUserId,
-          raisedByRole,
-          disputeType || 'other',
-          title || `Dispute for Order #${orderId || escrow.order_id}`,
-          description || 'No description provided',
-          evidenceUrls ? JSON.stringify(evidenceUrls) : null
-        ]
-      );
-
-      // 5. Update order status if needed
-      await connection.execute(
-        "UPDATE orders SET dispute_status = 'open', updated_at = NOW() WHERE id = ?",
-        [orderId || escrow.order_id]
-      );
-
-      await connection.commit();
-
-      res.json({ 
-        message: "Dispute raised successfully. Admin will review your case.",
-        disputeId: result.insertId
-      });
-
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
-    }
-  } catch (err) {
-    console.error("Raise Dispute Error:", err);
-    res.status(500).json({ message: "Failed to raise dispute", error: err.message });
-  }
-};
-*/
 /* --------------------------------------------------
-   ✅  Resolve Account Name
+   ✅  Raise a Dispute
 -------------------------------------------------- */
 exports.raiseDispute = async (req, res) => {
+  const client = await db.connect();
+  
   try {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Unauthorized" });
@@ -1363,105 +1023,100 @@ exports.raiseDispute = async (req, res) => {
     const { orderId, disputeType, title, description, evidenceUrls } = req.body;
     const userId = req.session.userId;
 
-    const connection = await db.getConnection();
+    await client.query('BEGIN');
+
+    // 1. Find escrow by order_id
+    const escrowResult = await client.query(
+      `SELECT e.*, o.buyer_id, o.seller_id, o.delivery_company_id
+       FROM escrow e
+       JOIN orders o ON e.order_id = o.id
+       WHERE e.order_id = $1 AND (o.buyer_id = $2 OR o.seller_id = $2)`,
+      [orderId, userId]
+    );
     
-    try {
-      await connection.beginTransaction();
-
-      // 1. Find escrow by order_id
-      const [escrowRows] = await connection.execute(
-        `SELECT e.*, o.buyer_id, o.seller_id, o.delivery_company_id
-         FROM escrow e
-         JOIN orders o ON e.order_id = o.id
-         WHERE e.order_id = ? AND (o.buyer_id = ? OR o.seller_id = ?)`,
-        [orderId, userId, userId]
-      );
-      
-      if (escrowRows.length === 0) {
-        await connection.rollback();
-        return res.status(404).json({ 
-          success: false,
-          message: "Escrow not found for this order or you don't have permission" 
-        });
-      }
-
-      const escrow = escrowRows[0];
-      const escrowId = escrow.id;
-      
-      // 2. Determine who is raising the dispute and who is being disputed
-      let raisedByRole, disputedUserId;
-      
-      if (userId === escrow.buyer_id) {
-        raisedByRole = 'buyer';
-        disputedUserId = escrow.seller_id;
-      } else if (userId === escrow.seller_id) {
-        raisedByRole = 'seller';
-        disputedUserId = escrow.buyer_id;
-      } else if (escrow.delivery_company_id && userId === escrow.delivery_company_id) {
-        raisedByRole = 'delivery_agent';
-        disputedUserId = escrow.buyer_id; // or seller depending on context
-      } else {
-        await connection.rollback();
-        return res.status(403).json({ 
-          success: false,
-          message: "You are not part of this transaction" 
-        });
-      }
-
-      // 3. Update escrow status
-      await connection.execute(
-        "UPDATE escrow SET status = 'disputed' WHERE id = ?",
-        [escrowId]
-      );
-
-      // 4. Create dispute record - FIXED: Added result variable
-      const [disputeResult] = await connection.execute(
-        `INSERT INTO disputes (
-          order_id, escrow_id, raised_by_id, disputed_user_id, raised_by_role,
-          dispute_type, title, description, evidence_urls, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-        [
-          orderId,
-          escrowId,
-          userId,
-          disputedUserId,
-          raisedByRole,
-          disputeType || 'other',
-          title || `Dispute for Order #${orderId}`,
-          description || 'No description provided',
-          evidenceUrls ? JSON.stringify(evidenceUrls) : null
-        ]
-      );
-
-      const disputeId = disputeResult.insertId; // Get the inserted ID
-
-      // 5. Update order status if needed
-      await connection.execute(
-        "UPDATE orders SET dispute_status = 'open', updated_at = NOW() WHERE id = ?",
-        [orderId]
-      );
-
-      await connection.commit();
-
-      res.json({ 
-        success: true,
-        message: "Dispute raised successfully. Admin will review your case.",
-        disputeId: disputeId
+    if (escrowResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ 
+        success: false,
+        message: "Escrow not found for this order or you don't have permission" 
       });
-
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
     }
+
+    const escrow = escrowResult.rows[0];
+    const escrowId = escrow.id;
+    
+    // 2. Determine who is raising the dispute and who is being disputed
+    let raisedByRole, disputedUserId;
+    
+    if (userId === escrow.buyer_id) {
+      raisedByRole = 'buyer';
+      disputedUserId = escrow.seller_id;
+    } else if (userId === escrow.seller_id) {
+      raisedByRole = 'seller';
+      disputedUserId = escrow.buyer_id;
+    } else if (escrow.delivery_company_id && userId === escrow.delivery_company_id) {
+      raisedByRole = 'delivery_agent';
+      disputedUserId = escrow.buyer_id;
+    } else {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ 
+        success: false,
+        message: "You are not part of this transaction" 
+      });
+    }
+
+    // 3. Update escrow status
+    await client.query(
+      "UPDATE escrow SET status = 'disputed' WHERE id = $1",
+      [escrowId]
+    );
+
+    // 4. Create dispute record
+    const disputeResult = await client.query(
+      `INSERT INTO disputes (
+        order_id, escrow_id, raised_by_id, disputed_user_id, raised_by_role,
+        dispute_type, title, description, evidence_urls, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
+      RETURNING id`,
+      [
+        orderId,
+        escrowId,
+        userId,
+        disputedUserId,
+        raisedByRole,
+        disputeType || 'other',
+        title || `Dispute for Order #${orderId}`,
+        description || 'No description provided',
+        evidenceUrls ? JSON.stringify(evidenceUrls) : null
+      ]
+    );
+
+    const disputeId = disputeResult.rows[0].id;
+
+    // 5. Update order status if needed
+    await client.query(
+      "UPDATE orders SET dispute_status = 'open', updated_at = NOW() WHERE id = $1",
+      [orderId]
+    );
+
+    await client.query('COMMIT');
+
+    res.json({ 
+      success: true,
+      message: "Dispute raised successfully. Admin will review your case.",
+      disputeId: disputeId
+    });
+
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error("Raise Dispute Error:", err);
     res.status(500).json({ 
       success: false,
       message: "Failed to raise dispute", 
       error: err.message 
     });
+  } finally {
+    client.release();
   }
 };
 
@@ -1469,55 +1124,54 @@ exports.raiseDispute = async (req, res) => {
    ✅  Admin Resolve Dispute
 -------------------------------------------------- */
 exports.resolveDispute = async (req, res) => {
-  const connection = await db.getConnection();
+  const client = await db.connect();
   try {
     const { escrowId, action } = req.body; // action = "release" or "refund"
 
-    await connection.beginTransaction();
+    await client.query('BEGIN');
 
-    const [rows] = await connection.execute("SELECT * FROM escrow WHERE id=?", [escrowId]);
-    if (rows.length === 0) {
-      await connection.rollback();
+    const escrowResult = await client.query("SELECT * FROM escrow WHERE id=$1", [escrowId]);
+    if (escrowResult.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ message: "Escrow not found" });
     }
-    const escrow = rows[0];
+    const escrow = escrowResult.rows[0];
 
     if (action === "release") {
-      await connection.execute(
-        "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
-        [escrow.amount, escrow.seller_id]
+      await client.query(
+        "UPDATE wallet SET balance = balance + $1 WHERE user_id = $2",
+        [parseFloat(escrow.amount), escrow.seller_id]
       );
-      await connection.execute(
-        "UPDATE transactions SET status='completed' WHERE id=?",
+      await client.query(
+        "UPDATE transactions SET status='completed' WHERE id=$1",
         [escrow.transaction_id]
       );
     } else if (action === "refund") {
-      await connection.execute(
-        "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
-        [escrow.amount, escrow.buyer_id]
+      await client.query(
+        "UPDATE wallet SET balance = balance + $1 WHERE user_id = $2",
+        [parseFloat(escrow.amount), escrow.buyer_id]
       );
-      await connection.execute(
-        "UPDATE transactions SET status='refunded' WHERE id=?",
+      await client.query(
+        "UPDATE transactions SET status='refunded' WHERE id=$1",
         [escrow.transaction_id]
       );
     }
 
-    await connection.execute(
-      "UPDATE escrow SET status=? WHERE id=?",
+    await client.query(
+      "UPDATE escrow SET status=$1 WHERE id=$2",
       [action === "release" ? "released" : "refunded", escrowId]
     );
 
-    await connection.commit();
+    await client.query('COMMIT');
     res.json({ message: `Escrow ${action}d successfully` });
   } catch (err) {
-    await connection.rollback();
+    await client.query('ROLLBACK');
     console.error("Resolve Dispute Error:", err);
     res.status(500).json({ message: "Dispute resolution failed" });
   } finally {
-    connection.release();
+    client.release();
   }
 };
-
 
 exports.addBankAccount = async (req, res) => {
   try {
@@ -1576,583 +1230,34 @@ exports.addBankAccount = async (req, res) => {
     const resolvedAccountNumber = resolved.account_number || resolved.accountNumber || account_number;
 
     // Check if this user already saved this exact account
-    const [existing] = await db.execute(
-      "SELECT id, account_name, bank_name FROM bank_accounts WHERE user_id = ? AND bank_code = ? AND account_number = ?",
+    const existing = await db.query(
+      "SELECT id, account_name, bank_name FROM bank_accounts WHERE user_id = $1 AND bank_code = $2 AND account_number = $3",
       [userId, bank_code, resolvedAccountNumber]
     );
-    if (existing.length > 0) {
+    if (existing.rows.length > 0) {
       return res.status(200).json({
         message: "This bank account is already added",
-        account: existing[0]
+        account: existing.rows[0]
       });
     }
 
     // Insert into DB - use the bank name we looked up
-    const [insertResult] = await db.execute(
-      "INSERT INTO bank_accounts (user_id, bank_name, bank_code, account_number, account_name, is_default) VALUES (?, ?, ?, ?, ?, 0)",
+    const insertResult = await db.query(
+      "INSERT INTO bank_accounts (user_id, bank_name, bank_code, account_number, account_name, is_default) VALUES ($1, $2, $3, $4, $5, 0) RETURNING id",
       [userId, bankName, bank_code, resolvedAccountNumber, accountName]
     );
 
-    const newAccountId = insertResult.insertId;
+    const newAccountId = insertResult.rows[0].id;
 
     // Fetch and return the saved record
-    const [savedRows] = await db.execute("SELECT id, bank_name, bank_code, account_number, account_name, is_default, created_at FROM bank_accounts WHERE id = ?", [newAccountId]);
+    const savedRows = await db.query("SELECT id, bank_name, bank_code, account_number, account_name, is_default, created_at FROM bank_accounts WHERE id = $1", [newAccountId]);
 
     return res.status(201).json({
       message: "Bank account verified and saved",
-      account: savedRows[0]
+      account: savedRows.rows[0]
     });
   } catch (err) {
     console.error("addBankAccount Error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
-
-
-/* --------------------------------------------------
-   ✅  Withdraw Funds (FIXED VERSION)
--------------------------------------------------- */
-/*exports.withdrawFunds = async (req, res) => {
-  const connection = await db.getConnection();
-  
-  try {
-    if (!req.session || !req.session.userId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    const userId = req.session.userId;
-    const { bank_account_id, amount } = req.body;
-
-    if (!bank_account_id || !amount) {
-      return res.status(400).json({ 
-        success: false,
-        message: "Bank account and amount are required" 
-      });
-    }
-
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
-      return res.status(400).json({ 
-        success: false,
-        message: "Invalid amount" 
-      });
-    }
-
-    // Minimum and maximum amount validation
-    const MIN_WITHDRAWAL = 100; // ₦100 minimum
-    const MAX_WITHDRAWAL = 5000000; // ₦5 million maximum
-    
-    if (amountNum < MIN_WITHDRAWAL) {
-      return res.status(400).json({ 
-        success: false,
-        message: `Minimum withdrawal amount is ₦${MIN_WITHDRAWAL}` 
-      });
-    }
-    
-    if (amountNum > MAX_WITHDRAWAL) {
-      return res.status(400).json({ 
-        success: false,
-        message: `Maximum withdrawal amount is ₦${MAX_WITHDRAWAL.toLocaleString()}` 
-      });
-    }
-
-    await connection.beginTransaction();
-
-    // Get bank account WITH LOCK to prevent race conditions
-    const [accounts] = await connection.execute(
-      "SELECT * FROM bank_accounts WHERE id = ? AND user_id = ? FOR UPDATE",
-      [bank_account_id, userId]
-    );
-    
-    if (accounts.length === 0) {
-      await connection.rollback();
-      return res.status(404).json({ 
-        success: false,
-        message: "Bank account not found" 
-      });
-    }
-    
-    const account = accounts[0];
-
-    // Get wallet balance WITH LOCK
-    const [walletRows] = await connection.execute(
-      "SELECT balance FROM wallet WHERE user_id = ? FOR UPDATE",
-      [userId]
-    );
-    
-    if (walletRows.length === 0) {
-      await connection.rollback();
-      return res.status(404).json({ 
-        success: false,
-        message: "Wallet not found" 
-      });
-    }
-    
-    const wallet = walletRows[0];
-    
-    // ✅ CRITICAL FIX: Check balance including transaction fees
-    const transactionFee = Math.ceil(amountNum * 0.015); // 1.5% fee example
-    const totalDeduction = amountNum + transactionFee;
-    
-    if (wallet.balance < totalDeduction) {
-      await connection.rollback();
-      return res.status(400).json({ 
-        success: false,
-        message: `Insufficient funds. Available: ₦${wallet.balance.toLocaleString()}, Required: ₦${totalDeduction.toLocaleString()} (includes ₦${transactionFee} fee)` 
-      });
-    }
-
-    // ✅ CRITICAL FIX: Deduct from wallet BEFORE initiating transfer
-    await connection.execute(
-      "UPDATE wallet SET balance = balance - ? WHERE user_id = ?",
-      [totalDeduction, userId]
-    );
-
-    // Create Paystack transfer recipient if needed
-    let recipientCode = account.recipient_code;
-    if (!recipientCode) {
-      try {
-        const recipientResp = await axios.post(
-          "https://api.paystack.co/transferrecipient",
-          {
-            type: "nuban",
-            name: account.account_name,
-            account_number: account.account_number,
-            bank_code: account.bank_code,
-            currency: "NGN"
-          },
-          { 
-            headers: { 
-              Authorization: `Bearer ${PAYSTACK_SECRET}`,
-              "Content-Type": "application/json"
-            } 
-          }
-        );
-        
-        if (!recipientResp.data.status) {
-          throw new Error(recipientResp.data.message || "Failed to create recipient");
-        }
-        
-        recipientCode = recipientResp.data.data.recipient_code;
-
-        // Save recipient code for future use
-        await connection.execute(
-          "UPDATE bank_accounts SET recipient_code = ? WHERE id = ?",
-          [recipientCode, bank_account_id]
-        );
-      } catch (err) {
-        await connection.rollback();
-        console.error("Paystack recipient error:", err.response?.data || err.message);
-        return res.status(400).json({ 
-          success: false,
-          message: "Failed to set up bank account for transfer",
-          details: err.response?.data?.message || err.message
-        });
-      }
-    }
-
-    let transferData;
-    try {
-      // Initiate transfer
-      const transferResp = await axios.post(
-        "https://api.paystack.co/transfer",
-        {
-          source: "balance",
-          amount: amountNum * 100, // Convert to kobo
-          recipient: recipientCode,
-          reason: "Wallet withdrawal",
-          reference: `WD_${Date.now()}_${userId}`.substring(0, 100) // Custom reference
-        },
-        { 
-          headers: { 
-            Authorization: `Bearer ${PAYSTACK_SECRET}`,
-            "Content-Type": "application/json"
-          } 
-        }
-      );
-
-      if (!transferResp.data.status) {
-        throw new Error(transferResp.data.message || "Transfer failed");
-      }
-
-      transferData = transferResp.data.data;
-      
-      // ✅ FIXED: Log transaction with proper structure
-      await connection.execute(
-        `INSERT INTO transactions 
-         (sender_id, receiver_id, amount, fee, total_amount, type, status, reference, metadata) 
-         VALUES (?, ?, ?, ?, ?, 'withdrawal', 'pending', ?, ?)`,
-        [
-          userId, 
-          account.account_number, // Store bank account as receiver
-          amountNum,
-          transactionFee,
-          totalDeduction,
-          transferData.reference,
-          JSON.stringify({
-            bank_name: account.bank_name,
-            account_name: account.account_name,
-            paystack_transfer_id: transferData.id,
-            recipient_code: recipientCode
-          })
-        ]
-      );
-
-      await connection.commit();
-      
-      // Send success response
-      return res.status(200).json({
-        success: true,
-        message: "Withdrawal initiated successfully",
-        data: {
-          amount: amountNum,
-          fee: transactionFee,
-          total: totalDeduction,
-          reference: transferData.reference,
-          new_balance: wallet.balance - totalDeduction,
-          transfer_id: transferData.id,
-          status: transferData.status
-        }
-      });
-
-    } catch (err) {
-      // If transfer fails, refund the wallet
-      await connection.execute(
-        "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
-        [totalDeduction, userId]
-      );
-      
-      await connection.rollback();
-      
-      console.error("Paystack transfer error:", err.response?.data || err.message);
-      
-      return res.status(400).json({
-        success: false,
-        message: "Transfer failed",
-        details: err.response?.data?.message || err.message
-      });
-    }
-
-  } catch (err) {
-    if (connection) {
-      await connection.rollback();
-    }
-    
-    console.error("withdrawFunds error:", err);
-    
-    return res.status(500).json({ 
-      success: false,
-      message: "Server error during withdrawal" 
-    });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
-};
-*/
-
-// ✅ Webhook for withdrawals (transfers)
-/* --------------------------------------------------
-   ✅  Webhook for Withdrawals (FIXED)
--------------------------------------------------- */
-/*exports.verifyTransfer = async (req, res) => {
-  const connection = await db.getConnection();
-  
-  try {
-    // Verify webhook signature
-    const hash = crypto
-      .createHmac("sha512", PAYSTACK_SECRET)
-      .update(JSON.stringify(req.body))
-      .digest("hex");
-
-    if (hash !== req.headers["x-paystack-signature"]) {
-      console.error("Invalid webhook signature for transfer");
-      return res.status(400).json({ message: "Invalid signature" });
-    }
-
-    const event = req.body;
-    console.log("Transfer webhook received:", event.event, event.data?.reference);
-
-    if (event.event === "transfer.success") {
-      const transferData = event.data;
-      const reference = transferData.reference;
-
-      await connection.beginTransaction();
-
-      // Find transaction by reference
-      const [transactions] = await connection.execute(
-        "SELECT * FROM transactions WHERE reference = ? AND status = 'pending'",
-        [reference]
-      );
-
-      if (transactions.length > 0) {
-        const transaction = transactions[0];
-        
-        // Update transaction status
-        await connection.execute(
-          "UPDATE transactions SET status = 'completed', updated_at = NOW() WHERE id = ?",
-          [transaction.id]
-        );
-
-        // Log transfer completion
-        await connection.execute(
-          `INSERT INTO transfer_logs 
-           (transaction_id, paystack_transfer_id, status, amount, fees, metadata) 
-           VALUES (?, ?, 'success', ?, ?, ?)`,
-          [
-            transaction.id,
-            transferData.id,
-            transferData.amount / 100,
-            transferData.fees / 100,
-            JSON.stringify(transferData)
-          ]
-        );
-
-        console.log(`Transfer ${reference} marked as completed`);
-      } else {
-        console.log(`Transaction not found for reference: ${reference}`);
-      }
-
-      await connection.commit();
-    }
-
-    if (event.event === "transfer.failed" || event.event === "transfer.reversed") {
-      const transferData = event.data;
-      const reference = transferData.reference;
-
-      await connection.beginTransaction();
-
-      // Find transaction
-      const [transactions] = await connection.execute(
-        "SELECT * FROM transactions WHERE reference = ? AND status IN ('pending', 'processing')",
-        [reference]
-      );
-
-      if (transactions.length > 0) {
-        const transaction = transactions[0];
-        const userId = transaction.sender_id;
-        const totalAmount = transaction.total_amount;
-
-        // ✅ CRITICAL: Refund wallet
-        await connection.execute(
-          "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
-          [totalAmount, userId]
-        );
-
-        // Update transaction status
-        await connection.execute(
-          "UPDATE transactions SET status = 'failed', updated_at = NOW() WHERE id = ?",
-          [transaction.id]
-        );
-
-        // Log failure
-        await connection.execute(
-          `INSERT INTO transfer_logs 
-           (transaction_id, paystack_transfer_id, status, amount, metadata) 
-           VALUES (?, ?, 'failed', ?, ?)`,
-          [
-            transaction.id,
-            transferData.id,
-            transferData.amount / 100,
-            JSON.stringify({
-              ...transferData,
-              failure_reason: transferData.failure_reason || transferData.reason
-            })
-          ]
-        );
-
-        console.log(`Transfer ${reference} failed, refunded user ${userId}`);
-      }
-
-      await connection.commit();
-    }
-
-    res.sendStatus(200);
-
-  } catch (err) {
-    console.error("Transfer webhook error:", err);
-    
-    if (connection) {
-      await connection.rollback();
-    }
-    
-    res.sendStatus(500);
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
-};
-*/
-
-/* --------------------------------------------------
-   ✅  Get Withdrawal History
--------------------------------------------------- */
-/*exports.getWithdrawalHistory = async (req, res) => {
-  try {
-    if (!req.session.userId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    const userId = req.session.userId;
-    const { page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
-
-    const [transactions] = await db.execute(
-      `SELECT 
-        t.id,
-        t.amount,
-        t.fee,
-        t.total_amount,
-        t.type,
-        t.status,
-        t.reference,
-        t.created_at,
-        t.updated_at,
-        t.metadata,
-        ba.bank_name,
-        ba.account_number,
-        ba.account_name
-       FROM transactions t
-       LEFT JOIN bank_accounts ba ON JSON_EXTRACT(t.metadata, '$.bank_account_id') = ba.id
-       WHERE t.sender_id = ? AND t.type = 'withdrawal'
-       ORDER BY t.created_at DESC
-       LIMIT ? OFFSET ?`,
-      [userId, parseInt(limit), parseInt(offset)]
-    );
-
-    const [totalResult] = await db.execute(
-      `SELECT COUNT(*) as total 
-       FROM transactions 
-       WHERE sender_id = ? AND type = 'withdrawal'`,
-      [userId]
-    );
-
-    res.json({
-      success: true,
-      transactions: transactions.map(t => ({
-        ...t,
-        metadata: t.metadata ? JSON.parse(t.metadata) : null
-      })),
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: totalResult[0].total,
-        totalPages: Math.ceil(totalResult[0].total / limit)
-      }
-    });
-
-  } catch (err) {
-    console.error("Get withdrawal history error:", err);
-    res.status(500).json({ 
-      success: false,
-      message: "Failed to fetch withdrawal history" 
-    });
-  }
-};
-*/
-/* --------------------------------------------------
-   ✅  Check Withdrawal Status
--------------------------------------------------- */
-/*exports.checkWithdrawalStatus = async (req, res) => {
-  try {
-    if (!req.session.userId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    const { reference } = req.query;
-    if (!reference) {
-      return res.status(400).json({ 
-        success: false,
-        message: "Reference is required" 
-      });
-    }
-
-    // Check local database first
-    const [transactions] = await db.execute(
-      "SELECT * FROM transactions WHERE reference = ? AND sender_id = ?",
-      [reference, req.session.userId]
-    );
-
-    if (transactions.length === 0) {
-      return res.status(404).json({ 
-        success: false,
-        message: "Transaction not found" 
-      });
-    }
-
-    const transaction = transactions[0];
-
-    // Also check with Paystack for latest status
-    try {
-      const response = await axios.get(
-        `https://api.paystack.co/transfer/${transaction.metadata?.paystack_transfer_id || reference}`,
-        {
-          headers: {
-            Authorization: `Bearer ${PAYSTACK_SECRET}`
-          }
-        }
-      );
-
-      const paystackStatus = response.data.data?.status;
-
-      // Update local status if different
-      if (paystackStatus && paystackStatus !== transaction.status) {
-        await db.execute(
-          "UPDATE transactions SET status = ? WHERE id = ?",
-          [paystackStatus, transaction.id]
-        );
-        
-        // If Paystack says it's successful but we have it as pending, update
-        if (paystackStatus === 'success' && transaction.status === 'pending') {
-          // Already handled in webhook, but good to sync
-        }
-        
-        // If Paystack says it failed but we have it as pending, refund
-        if ((paystackStatus === 'failed' || paystackStatus === 'reversed') && 
-            (transaction.status === 'pending' || transaction.status === 'processing')) {
-          await db.execute(
-            "UPDATE wallet SET balance = balance + ? WHERE user_id = ?",
-            [transaction.total_amount, transaction.sender_id]
-          );
-        }
-      }
-
-      res.json({
-        success: true,
-        status: paystackStatus || transaction.status,
-        transaction: {
-          ...transaction,
-          metadata: transaction.metadata ? JSON.parse(transaction.metadata) : null
-        },
-        paystack_data: response.data.data || null
-      });
-
-    } catch (paystackErr) {
-      // If Paystack check fails, return local status
-      res.json({
-        success: true,
-        status: transaction.status,
-        transaction: {
-          ...transaction,
-          metadata: transaction.metadata ? JSON.parse(transaction.metadata) : null
-        },
-        note: "Could not fetch latest status from Paystack"
-      });
-    }
-
-  } catch (err) {
-    console.error("Check withdrawal status error:", err);
-    res.status(500).json({ 
-      success: false,
-      message: "Failed to check withdrawal status" 
-    });
-  }
-};
-*/
-
-/* --------------------------------------------------
-   ✅  Request Withdrawal
--------------------------------------------------- */
-
