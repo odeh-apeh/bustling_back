@@ -1,7 +1,7 @@
 // backend/routes/profile.js
 const express = require('express');
 const router = express.Router();
-const db = require('../config/db');
+const db = require('../config/db'); // should be a pg Pool or Client
 const authMiddleware = require('../middlewares/authMiddleware');
 const bcrypt = require('bcryptjs');
 
@@ -9,42 +9,42 @@ const bcrypt = require('bcryptjs');
 router.get('/profile', authMiddleware, async (req, res) => {
   try {
     const userId = req.session.userId;
-    
+
     // Get user data
-    const [userRows] = await db.execute(
-      "SELECT id, name, phone, email, type, location FROM users WHERE id = ?", 
+    const { rows: userRows } = await db.query(
+      "SELECT id, name, phone, email, type, location FROM users WHERE id = $1",
       [userId]
     );
-    
+
     if (userRows.length === 0) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
-    
+
     // Get wallet data
-    const [walletRows] = await db.execute(
-      "SELECT balance FROM wallet WHERE user_id = ?", 
+    const { rows: walletRows } = await db.query(
+      "SELECT balance FROM wallet WHERE user_id = $1",
       [userId]
     );
 
     // Get user stats
-    const [orderStats] = await db.execute(`
+    const { rows: orderStats } = await db.query(`
       SELECT 
-        COUNT(*) as total_orders,
-        SUM(CASE WHEN type = 'product' THEN 1 ELSE 0 END) as product_orders,
-        SUM(CASE WHEN type = 'service' THEN 1 ELSE 0 END) as service_orders
-      FROM orders 
-      WHERE buyer_id = ?
+        COUNT(*) AS total_orders,
+        SUM(CASE WHEN type = 'product' THEN 1 ELSE 0 END) AS product_orders,
+        SUM(CASE WHEN type = 'service' THEN 1 ELSE 0 END) AS service_orders
+      FROM orders
+      WHERE buyer_id = $1
     `, [userId]);
 
-    const [sellerStats] = await db.execute(`
+    const { rows: sellerStats } = await db.query(`
       SELECT 
-        COUNT(*) as total_listings,
-        SUM(CASE WHEN type = 'product' THEN 1 ELSE 0 END) as products_listed,
-        SUM(CASE WHEN type = 'service' THEN 1 ELSE 0 END) as services_listed
-      FROM products 
-      WHERE seller_id = ?
+        COUNT(*) AS total_listings,
+        SUM(CASE WHEN type = 'product' THEN 1 ELSE 0 END) AS products_listed,
+        SUM(CASE WHEN type = 'service' THEN 1 ELSE 0 END) AS services_listed
+      FROM products
+      WHERE seller_id = $1
     `, [userId]);
-    
+
     res.json({
       success: true,
       user: userRows[0],
@@ -58,7 +58,7 @@ router.get('/profile', authMiddleware, async (req, res) => {
         servicesListed: sellerStats[0]?.services_listed || 0,
       }
     });
-    
+
   } catch (err) {
     console.error("Profile error:", err);
     res.status(500).json({ success: false, message: "Server error" });
@@ -72,10 +72,7 @@ router.put('/profile', authMiddleware, async (req, res) => {
     const { name, email, location } = req.body;
 
     if (!name && !email && !location) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "No fields to update" 
-      });
+      return res.status(400).json({ success: false, message: "No fields to update" });
     }
 
     // Build dynamic update query
@@ -83,57 +80,46 @@ router.put('/profile', authMiddleware, async (req, res) => {
     const params = [];
 
     if (name) {
-      updates.push("name = ?");
+      updates.push(`name = $${params.length + 1}`);
       params.push(name);
     }
     if (email) {
-      updates.push("email = ?");
+      updates.push(`email = $${params.length + 1}`);
       params.push(email);
     }
     if (location) {
-      updates.push("location = ?");
+      updates.push(`location = $${params.length + 1}`);
       params.push(location);
     }
 
-    params.push(userId);
+    params.push(userId); // For WHERE clause
 
     const query = `
-      UPDATE users 
-      SET name = ?, email = ?, location = ?
-      WHERE id = ?
+      UPDATE users
+      SET ${updates.join(', ')}
+      WHERE id = $${params.length}
+      RETURNING id, name, phone, email, type, location
     `;
-    
-    const [result] = await db.execute(query, params);
 
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "User not found" 
-      });
+    const { rows: updatedUserRows } = await db.query(query, params);
+
+    if (updatedUserRows.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found" });
     }
-
-    // Get updated user data
-    const [userRows] = await db.execute(
-      "SELECT id, name, phone, email, type, location FROM users WHERE id = ?", 
-      [userId]
-    );
 
     res.json({
       success: true,
       message: "Profile updated successfully",
-      user: userRows[0]
+      user: updatedUserRows[0]
     });
 
   } catch (err) {
     console.error("Update profile error:", err);
-    
-    if (err.code === 'ER_DUP_ENTRY') {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Email already exists" 
-      });
+
+    if (err.code === '23505') { // Postgres unique violation
+      return res.status(400).json({ success: false, message: "Email already exists" });
     }
-    
+
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
@@ -159,40 +145,31 @@ router.put('/reset-password', authMiddleware, async (req, res) => {
     }
 
     // Get current password hash
-    const [userRows] = await db.execute(
-      "SELECT password FROM users WHERE id = ?", 
+    const { rows: userRows } = await db.query(
+      "SELECT password FROM users WHERE id = $1",
       [userId]
     );
 
     if (userRows.length === 0) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "User not found" 
-      });
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
     // Verify current password
     const isMatch = await bcrypt.compare(currentPassword, userRows[0].password);
     if (!isMatch) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Current password is incorrect" 
-      });
+      return res.status(400).json({ success: false, message: "Current password is incorrect" });
     }
 
     // Hash new password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     // Update password
-    await db.execute(
-      "UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", 
+    await db.query(
+      "UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
       [hashedPassword, userId]
     );
 
-    res.json({
-      success: true,
-      message: "Password updated successfully"
-    });
+    res.json({ success: true, message: "Password updated successfully" });
 
   } catch (err) {
     console.error("Reset password error:", err);
