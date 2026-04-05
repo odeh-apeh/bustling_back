@@ -4,16 +4,16 @@ const express = require("express");
 const db = require("./config/db");
 const cors = require("cors");
 const session = require("express-session");
-const PgSession = require("connect-pg-simple")(session); // ✅ PostgreSQL session store
+const pgSession = require('express-pg-session')(session); // ✅ Using express-pg-session
 require("dotenv").config();
 
 const walletController = require("./controllers/walletController");
 
 const app = express();
 
-// ✅ Middleware
+// ✅ CORS Configuration for Mobile App
 app.use(cors({ 
-    origin: '*', // Mobile apps don't have an origin, so allow all
+    origin: true, // Allow all origins for mobile app
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Session-ID'],
@@ -36,16 +36,15 @@ app.use(cors({
   }
 );
 */
-// ✅ Now JSON parser for all other routes
-app.use(express.json());
 
-// ✅ PostgreSQL Session Store
-const sessionStore = new PgSession({
-    pool: db.pool,
+// ✅ PostgreSQL Session Store with express-pg-session
+const sessionStore = new pgSession({
+    conString: process.env.INTERNAL_DATABASE_URL, // Use your PostgreSQL connection string
     tableName: 'session',
     createTableIfMissing: true,
+    ttl: 24 * 60 * 60, // 1 day in seconds
+    schemaName: 'public',
     pruneSessionInterval: 60, // Prune expired sessions every 60 seconds
-    errorLog: console.error,
 });
 
 // ✅ Session Middleware - MUST come before routes
@@ -59,7 +58,7 @@ app.use(
         cookie: {
             maxAge: 1000 * 60 * 60 * 24, // 1 day
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production", // true only in production (HTTPS)
+            secure: false, // Set to false for HTTP (development)
             sameSite: 'lax',
             path: '/',
         },
@@ -67,6 +66,17 @@ app.use(
         rolling: true,
     })
 );
+
+// ✅ Debug middleware to log session (useful for debugging)
+app.use((req, res, next) => {
+    console.log("🔄 Session Debug - ID:", req.session?.id);
+    console.log("🔄 Session Debug - userId:", req.session?.userId);
+    console.log("🔄 Session Debug - Cookie header:", req.headers.cookie);
+    next();
+});
+
+// ✅ JSON parser for all routes (after session middleware)
+app.use(express.json());
 
 // ✅ Import routes
 const authRoutes = require("./routes/auth");
@@ -93,7 +103,7 @@ app.use("/api/delivery", deliveryRoutes);
 app.use("/api/user", userRoutes);
 app.use('/api', orderRoutes);
 app.use("/api/notifications", notificationRoutes);
-app.use("/api/transfer", transferRoutes)
+app.use("/api/transfer", transferRoutes);
 app.use("/api/chat", chatRoutes);
 
 // ✅ Serve product uploads
@@ -104,36 +114,51 @@ require("./cronJobs");
 
 // ✅ Add API root route
 app.get('/api', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'Errandly API is running!',
-    version: '1.0',
-    endpoints: {
-      auth: '/api/auth',
-      user: '/api/user', 
-      wallet: '/api/wallet',
-      products: '/api/products'
-    }
-  });
+    res.json({ 
+        success: true, 
+        message: 'Errandly API is running!',
+        version: '1.0',
+        endpoints: {
+            auth: '/api/auth',
+            user: '/api/user', 
+            wallet: '/api/wallet',
+            products: '/api/products'
+        }
+    });
 });
 
 // ✅ Also add a simple root route
 app.get('/', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'Errandly Backend Server is running!',
-    api: 'Visit /api for available endpoints'
-  });
+    res.json({ 
+        success: true, 
+        message: 'Errandly Backend Server is running!',
+        api: 'Visit /api for available endpoints'
+    });
 });
 
 // ✅ Error handler fallback
 app.use((err, req, res, next) => {
-  console.error("Unhandled Error:", err);
-  res.status(500).json({ message: "Internal Server Error" });
+    console.error("Unhandled Error:", err);
+    res.status(500).json({ 
+        success: false,
+        message: "Internal Server Error",
+        error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
 });
+
+// // ✅ 404 handler for undefined routes
+// app.use('*', (req, res) => {
+//     res.status(404).json({ 
+//         success: false,
+//         message: `Cannot ${req.method} ${req.originalUrl} - Route not found`
+//     });
+// });
 
 // ✅ Server listen
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+    console.log(`✅ Server is running on port ${PORT}`);
+    console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔐 Session secure: false (HTTP mode)`);
+    console.log(`📦 Session store: express-pg-session`);
 });
