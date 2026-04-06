@@ -5,119 +5,107 @@ exports.getDashboardStats = async (req, res) => {
   try {
     console.log("📊 Dashboard endpoint called");
     
-    // Execute queries one by one to debug which one fails
     let usersCount = 0, productsCount = 0, ordersCount = 0, servicesCount = 0;
     let totalRevenue = 0, pendingEscrows = 0, pendingDeposits = 0;
     let pendingWithdrawals = 0, pendingDisputes = 0;
     let recentTransactions = [];
 
+    // 1. Users count
     try {
-      // 1. Users count
       const usersResult = await db.query("SELECT COUNT(*) as count FROM users");
       usersCount = parseInt(usersResult.rows[0]?.count) || 0;
-      console.log("Users count:", usersCount);
     } catch (err) {
       console.error("Users query error:", err.message);
     }
 
+    // 2. Products count
     try {
-      // 2. Products count
       const productsResult = await db.query("SELECT COUNT(*) as count FROM products WHERE type='product'");
       productsCount = parseInt(productsResult.rows[0]?.count) || 0;
-      console.log("Products count:", productsCount);
     } catch (err) {
       console.error("Products query error:", err.message);
     }
 
+    // 3. Orders count
     try {
-      // 3. Orders count
       const ordersResult = await db.query("SELECT COUNT(*) as count FROM orders");
       ordersCount = parseInt(ordersResult.rows[0]?.count) || 0;
-      console.log("Orders count:", ordersCount);
     } catch (err) {
       console.error("Orders query error:", err.message);
     }
 
+    // 4. Services count
     try {
-      // 4. Services count
       const servicesResult = await db.query("SELECT COUNT(*) as count FROM products WHERE type='service'");
       servicesCount = parseInt(servicesResult.rows[0]?.count) || 0;
-      console.log("Services count:", servicesCount);
     } catch (err) {
       console.error("Services query error:", err.message);
     }
 
+    // 5. Total revenue
     try {
-      // 5. Total revenue
       const revenueResult = await db.query("SELECT COALESCE(SUM(amount), 0) as total FROM escrow WHERE status='released'");
       totalRevenue = parseFloat(revenueResult.rows[0]?.total) || 0;
-      console.log("Total revenue:", totalRevenue);
     } catch (err) {
       console.error("Revenue query error:", err.message);
     }
 
+    // 6. Pending escrows
     try {
-      // 6. Pending escrows
       const escrowsResult = await db.query("SELECT COUNT(*) as count FROM escrow WHERE status='pending'");
       pendingEscrows = parseInt(escrowsResult.rows[0]?.count) || 0;
-      console.log("Pending escrows:", pendingEscrows);
     } catch (err) {
       console.error("Escrows query error:", err.message);
     }
 
+    // 7. Pending deposits
     try {
-      // 7. Pending deposits
       const depositsResult = await db.query("SELECT COUNT(*) as count FROM deposits WHERE status='pending'");
       pendingDeposits = parseInt(depositsResult.rows[0]?.count) || 0;
-      console.log("Pending deposits:", pendingDeposits);
     } catch (err) {
       console.error("Deposits query error:", err.message);
     }
 
+    // 8. Pending withdrawals
     try {
-      // 8. Pending withdrawals
       const withdrawalsResult = await db.query("SELECT COUNT(*) as count FROM withdrawals WHERE status='pending'");
       pendingWithdrawals = parseInt(withdrawalsResult.rows[0]?.count) || 0;
-      console.log("Pending withdrawals:", pendingWithdrawals);
     } catch (err) {
       console.error("Withdrawals query error:", err.message);
     }
 
+    // 9. Pending disputes
     try {
-      // 9. Pending disputes
       const disputesResult = await db.query("SELECT COUNT(*) as count FROM orders WHERE dispute_status = 'open'");
       pendingDisputes = parseInt(disputesResult.rows[0]?.count) || 0;
-      console.log("Pending disputes:", pendingDisputes);
     } catch (err) {
       console.error("Disputes query error:", err.message);
     }
 
+    // 10. Recent transactions - FIXED for your table structure
     try {
-      // 10. Recent transactions
       const transactionsResult = await db.query(`
-        SELECT t.*, u.name as user_name 
+        SELECT 
+          t.id, 
+          t.amount, 
+          t.type, 
+          t.status, 
+          t.created_at,
+          t.sender_id,
+          t.receiver_id,
+          t.reference,
+          COALESCE(sender.name, receiver.name, 'System') as user_name
         FROM transactions t 
-        JOIN users u ON t.user_id = u.id 
+        LEFT JOIN users sender ON t.sender_id = sender.id
+        LEFT JOIN users receiver ON t.receiver_id = receiver.id
         ORDER BY t.created_at DESC 
         LIMIT $1
       `, [10]);
+      
       recentTransactions = transactionsResult.rows || [];
-      console.log("Recent transactions count:", recentTransactions.length);
     } catch (err) {
       console.error("Transactions query error:", err.message);
       recentTransactions = [];
-    }
-
-    // Debug: Check database structure
-    try {
-      const tables = await db.query(`
-        SELECT table_name 
-        FROM information_schema.tables 
-        WHERE table_schema = 'public'
-      `);
-      console.log("Available tables:", tables.rows.map(t => t.table_name));
-    } catch (err) {
-      console.error("Table check error:", err.message);
     }
 
     res.json({
@@ -133,16 +121,11 @@ exports.getDashboardStats = async (req, res) => {
         pendingWithdrawals: pendingWithdrawals,
         pendingDisputes: pendingDisputes
       },
-      recentTransactions: recentTransactions,
-      debug: {
-        timestamp: new Date().toISOString(),
-        queriesExecuted: true
-      }
+      recentTransactions: recentTransactions
     });
 
   } catch (err) {
     console.error("Dashboard stats error:", err);
-    console.error("Full error:", err);
     res.status(500).json({ 
       success: false,
       message: "Server error", 
