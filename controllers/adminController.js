@@ -533,6 +533,8 @@ exports.updateOrderStatus = async (req, res) => {
 };
 
 // ✅ Get All Disputes with proper data
+// controllers/admin.js - Fixed getAllDisputes
+
 exports.getAllDisputes = async (req, res) => {
   try {
     const { 
@@ -564,7 +566,8 @@ exports.getAllDisputes = async (req, res) => {
     }
 
     if (search) {
-      whereConditions.push(`(CAST(o.id AS TEXT) ILIKE $${paramCounter} OR r.name ILIKE $${paramCounter} OR du.name ILIKE $${paramCounter} OR p.name ILIKE $${paramCounter})`);
+      // ✅ FIX: Join products table and use correct column names
+      whereConditions.push(`(CAST(o.id AS TEXT) ILIKE $${paramCounter} OR r.name ILIKE $${paramCounter} OR du.name ILIKE $${paramCounter})`);
       const searchTerm = `%${search}%`;
       queryParams.push(searchTerm);
       paramCounter++;
@@ -572,7 +575,7 @@ exports.getAllDisputes = async (req, res) => {
 
     const whereClause = whereConditions.length > 0 ? "WHERE " + whereConditions.join(" AND ") : "";
 
-    // Get disputes with all related data
+    // Get disputes with all related data - FIXED: Added products join
     const disputesQuery = `
       SELECT 
         d.*,
@@ -607,7 +610,7 @@ exports.getAllDisputes = async (req, res) => {
       JOIN orders o ON d.order_id = o.id
       JOIN users r ON d.raised_by_id = r.id
       JOIN users du ON d.disputed_user_id = du.id
-      JOIN products p ON o.product_id = p.id
+      JOIN products p ON o.product_id = p.id  -- ✅ ADD THIS JOIN
       JOIN escrow e ON d.escrow_id = e.id
       LEFT JOIN users admin ON d.resolved_by = admin.id
       ${whereClause}
@@ -626,16 +629,20 @@ exports.getAllDisputes = async (req, res) => {
     const disputesResult = await db.query(disputesQuery, disputesParams);
     const disputes = disputesResult.rows;
 
-    // Count query
-    const countQuery = `
+    // Count query - FIXED: Also need products join here
+    let countQuery = `
       SELECT COUNT(*) as total 
       FROM disputes d
       JOIN orders o ON d.order_id = o.id
       JOIN users r ON d.raised_by_id = r.id
       JOIN users du ON d.disputed_user_id = du.id
-      ${whereClause}
+      JOIN products p ON o.product_id = p.id
     `;
-
+    
+    if (whereConditions.length > 0) {
+      countQuery += ` ${whereClause}`;
+    }
+    
     const countResult = await db.query(countQuery, queryParams);
     const total = parseInt(countResult.rows[0]?.total) || 0;
 
@@ -703,6 +710,7 @@ exports.getAllDisputes = async (req, res) => {
     const stats = statsResult.rows[0] || {};
 
     res.json({
+      success: true,
       disputes: formattedDisputes,
       stats,
       pagination: {
@@ -715,7 +723,11 @@ exports.getAllDisputes = async (req, res) => {
 
   } catch (err) {
     console.error("Error in getAllDisputes:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
+    res.status(500).json({ 
+      success: false,
+      message: "Server error", 
+      error: err.message 
+    });
   }
 };
 
