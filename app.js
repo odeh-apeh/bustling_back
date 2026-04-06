@@ -75,10 +75,10 @@ const authMiddleware = require("./middlewares/authMiddleware");
 // ✅ Public routes (no authentication required)
 app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes); // Public product viewing
+app.use("/api/admin", adminRoutes);
 
 // ✅ Protected routes (authentication required)
 app.use("/api/wallet", authMiddleware, walletRoutes);
-app.use("/api/admin", authMiddleware, adminRoutes);
 app.use("/api/delivery-company", authMiddleware, deliveryCompanyRoutes);
 app.use("/api/delivery", authMiddleware, deliveryRoutes);
 app.use("/api/user", authMiddleware, userRoutes);
@@ -88,7 +88,7 @@ app.use("/api/chat", authMiddleware, chatRoutes);
 
 // ✅ Order routes with specific auth requirements
 app.use('/api/orders', authMiddleware, orderRoutes);
-app.use('/api', authMiddleware, orderRoutes); // Be careful - this might duplicate routes
+//app.use('/api', authMiddleware, orderRoutes); // Be careful - this might duplicate routes
 
 // ✅ Serve product uploads (public)
 app.use("/uploads", express.static("uploads"));
@@ -101,7 +101,7 @@ app.get('/api', (req, res) => {
     if (res.headersSent) return;
     res.json({ 
         success: true, 
-        message: 'Errandly API is running!',
+        message: 'Bustling API is running!',
         version: '1.0'
     });
 });
