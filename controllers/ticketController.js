@@ -67,3 +67,14 @@ exports.updateTicketStatus = async (req, res) => {
         res.status(500).json({ success: false, message: `${e.message}`, data: null });
     }
 }
+
+exports.getAllTickets = async (req,res) => {
+    try{
+       const tickets = await database.findAll({
+            table: 'tickets'
+        });
+        res.status(200).json({ success: true, message: "Processed successfully", data: tickets });
+    }catch(e){
+        res.status(500).json({ success: false, message: `${e.message}`, data: null });
+    }
+}
