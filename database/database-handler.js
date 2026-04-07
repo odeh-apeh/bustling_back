@@ -63,18 +63,19 @@ class Database {
   // =========================
   // FIND ALL MATCHING ROWS
   // =========================
-  async findAll({ table, attribute, attributeValue, hasAttribute=true  }) {
-    try {
-      const query = `
-        SELECT *
-        FROM ${table}
-        ${hasAttribute ? 'WHERE ${attribute} = $1;' : ''}
-      `;
-      return await this.queryMany(query, [attributeValue]);
-    } catch (e) {
-      this.throwError(e.message);
-    }
+ async findAll({ table, attribute, attributeValue, hasAttribute = true }) {
+  try {
+    const query = `
+      SELECT *
+      FROM ${table}
+      ${hasAttribute ? `WHERE ${attribute} = $1` : ''}
+    `;
+
+    return await this.queryMany(query, hasAttribute ? [attributeValue] : []);
+  } catch (e) {
+    this.throwError(e.message);
   }
+}
 
   // =========================
   // FIND ONE BY EMAIL
