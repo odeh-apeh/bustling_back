@@ -63,12 +63,12 @@ class Database {
   // =========================
   // FIND ALL MATCHING ROWS
   // =========================
-  async findAll({ table, attribute, attributeValue }) {
+  async findAll({ table, attribute, attributeValue, hasAttribute  }) {
     try {
       const query = `
         SELECT *
         FROM ${table}
-        WHERE ${attribute} = $1;
+        ${hasAttribute ? 'WHERE ${attribute} = $1;' : ''}
       `;
       return await this.queryMany(query, [attributeValue]);
     } catch (e) {
