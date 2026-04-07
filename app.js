@@ -68,6 +68,7 @@ const orderRoutes = require('./routes/orderRoute');
 const notificationRoutes = require("./routes/notifications");
 const transferRoutes = require("./routes/transfer");
 const chatRoutes = require("./routes/chat");
+const ticketsRoutes = require("./routes/tickets");
 
 // ✅ Import auth middleware
 const authMiddleware = require("./middlewares/authMiddleware");
@@ -76,6 +77,7 @@ const authMiddleware = require("./middlewares/authMiddleware");
 app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes); // Public product viewing
 app.use("/api/admin", adminRoutes);
+app.use("/api/admin/tickets", ticketsRoutes); // Admin can view all tickets
 
 // ✅ Protected routes (authentication required)
 app.use("/api/wallet", authMiddleware, walletRoutes);
@@ -85,10 +87,11 @@ app.use("/api/user", authMiddleware, userRoutes);
 app.use("/api/notifications", authMiddleware, notificationRoutes);
 app.use("/api/transfer", authMiddleware, transferRoutes);
 app.use("/api/chat", authMiddleware, chatRoutes);
+app.use("/api/tickets", authMiddleware, ticketsRoutes);
 
 // ✅ Order routes with specific auth requirements
 app.use('/api/orders', authMiddleware, orderRoutes);
-app.use('/api', authMiddleware, orderRoutes); // Be careful - this might duplicate routes
+app.use('/api', authMiddleware, orderRoutes);
 
 // ✅ Serve product uploads (public)
 app.use("/uploads", express.static("uploads"));

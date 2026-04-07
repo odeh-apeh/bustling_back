@@ -22,14 +22,9 @@ class Database {
   }
 
   async queryMany(query, values = []) {
-    const data = await db.query(query, values);
-
-    if (data.rows.length === 0) {
-      this.throwError();
-    }
-
-    return data.rows;
-  }
+  const data = await db.query(query, values);
+  return data.rows;
+}
 
   // =========================
   // FIND ONE BY ID
