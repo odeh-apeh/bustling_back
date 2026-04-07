@@ -51,3 +51,19 @@ exports.deleteTicket = async (req, res) => {
         res.status(500).json({ success: false, message: `${e.message}`, data: null });
     }
 }
+
+exports.updateTicketStatus = async (req, res) => {
+    const {ticketId} = req.params;
+    const { status } = req.body;
+    try {
+        await database.update({
+            table: 'tickets',
+            attribute: 'ticket_id',
+            attributeValue: ticketId,
+            data: { status }
+        });
+        res.status(200).json({ success: true, message: "Ticket status updated successfully", data: null });
+    } catch (e) {
+        res.status(500).json({ success: false, message: `${e.message}`, data: null });
+    }
+}
