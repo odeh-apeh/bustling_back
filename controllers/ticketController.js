@@ -56,11 +56,11 @@ exports.updateTicketStatus = async (req, res) => {
     const {ticketId} = req.params;
     const { status } = req.body;
     try {
-        await database.update({
+        await database.updateById({
             table: 'tickets',
-            attribute: 'ticket_id',
-            attributeValue: ticketId,
-            data: { status }
+            id: ticketId,
+            data: { status },
+            attribute: 'ticket_id'
         });
         res.status(200).json({ success: true, message: "Ticket status updated successfully", data: null });
     } catch (e) {
