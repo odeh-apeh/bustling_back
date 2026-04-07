@@ -14,9 +14,9 @@ exports.createTicket = async (req, res) => {
                 priority,
                 ticket_id: ticketId,
             }});
-        res.status(201).json({ success: true, message: "Ticket created successfully", ticketId: result.id });
+        res.status(201).json({ success: true, message: "Ticket created successfully", data: { ticketId: result.id } });
     }catch(e){
-        res.status(500).json({ success: false, message: `${e.message}` });
+        res.status(500).json({ success: false, message: `${e.message}`, data: null });
     }
 }
 
@@ -28,9 +28,9 @@ exports.getAllTicketsForUser = async (req, res) => {
             attribute: 'user_id',
             attributeValue: userId
         });
-        res.status(200).json({ success: true, tickets });
+        res.status(200).json({ success: true, message: "Processed successfully", data: tickets });
     } catch (e) {
-        res.status(500).json({ success: false, message: `${e.message}` });
+        res.status(500).json({ success: false, message: `${e.message}`, data: null });
     }
 };
 
@@ -42,9 +42,9 @@ exports.deleteTicket = async (req, res) => {
             attribute: 'ticket_id',
             attributeValue: ticketId
         });
-        res.status(200).json({ success: true, message: "Ticket deleted successfully" });
+        res.status(200).json({ success: true, message: "Ticket deleted successfully", data: null });
     }
     catch (e) {
-        res.status(500).json({ success: false, message: `${e.message}` });
+        res.status(500).json({ success: false, message: `${e.message}`, data: null });
     }
 }
