@@ -1,7 +1,7 @@
 const database = require('../database/database-handler');
 
 exports.createTicket = async (req, res) => {
-    const {userId, subject, description, dateCreated, status, priority, ticketId} = req.body;
+    const {userId, subject, description, dateCreated, status, priority, ticketId, email, category} = req.body;
     try{
         const result = await database.insert({
             table: 'tickets',
@@ -13,7 +13,10 @@ exports.createTicket = async (req, res) => {
                 status,
                 priority,
                 ticket_id: ticketId,
+                email,
+                category
             }});
+            
         res.status(201).json({ success: true, message: "Ticket created successfully", data: { ticketId: result.id } });
     }catch(e){
         res.status(500).json({ success: false, message: `${e.message}`, data: null });
