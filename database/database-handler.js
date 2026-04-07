@@ -63,7 +63,7 @@ class Database {
   // =========================
   // FIND ALL MATCHING ROWS
   // =========================
-  async findAll({ table, attribute, attributeValue, hasAttribute  }) {
+  async findAll({ table, attribute, attributeValue, hasAttribute=true  }) {
     try {
       const query = `
         SELECT *

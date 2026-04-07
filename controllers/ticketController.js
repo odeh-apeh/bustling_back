@@ -71,7 +71,8 @@ exports.updateTicketStatus = async (req, res) => {
 exports.getAllTickets = async (req,res) => {
     try{
        const tickets = await database.findAll({
-            table: 'tickets'
+            table: 'tickets',
+            hasAttribute: false
         });
         res.status(200).json({ success: true, message: "Processed successfully", data: tickets });
     }catch(e){
