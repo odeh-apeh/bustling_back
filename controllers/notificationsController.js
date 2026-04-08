@@ -7,7 +7,7 @@ exports.getNotifications = async (req, res) => {
     const notifications = await database.findAll({
       table: 'notifications',
       attribute: 'user_id',
-      attributeValue: userId,
+      attributeValue: Number(userId),
       hasAttribute: true
     });
 
