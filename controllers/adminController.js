@@ -1586,7 +1586,7 @@ exports.updateAdminDetails = async (req, res) => {
       otp: ''
   },
   attribute: 'id',
-  email:id
+  id:id
 });
 
   if(!result){
