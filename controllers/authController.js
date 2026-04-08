@@ -328,7 +328,7 @@ exports.createNewPassword = async (req, res) => {
             email: email,
             table: 'users',
             attribute:'email',
-            item:'email'
+            item:'otp'
         });
         if(!data){
             return res.status(400).json({
