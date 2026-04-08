@@ -21,6 +21,8 @@ exports.getNotifications = async (req, res) => {
 
     res.json({
       success: true,
+      message: "Notifications fetched successfully",
+      data:
       notifications
     });
   } catch (error) {
@@ -56,6 +58,7 @@ exports.markAsRead = async (req, res) => {
     res.json({
       success: true,
       message: "Notification marked as read"
+      
     });
   } catch (error) {
     console.error('Error marking notification as read:', error);
