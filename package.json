@@ -27,6 +27,7 @@
     "nodemailer": "^7.0.13",
     "pg": "^8.20.0",
     "sendbird": "^3.1.33",
+    "sib-api-v3-sdk": "^8.5.0",
     "stream-chat": "^9.26.1",
     "uuid": "^13.0.0"
   }

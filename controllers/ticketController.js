@@ -1,5 +1,13 @@
 const database = require('../database/database-handler');
-const nodemailer = require('nodemailer');
+const SibApiV3Sdk = require('sib-api-v3-sdk');
+
+// Brevo setup
+const defaultClient = SibApiV3Sdk.ApiClient.instance;
+const apiKey = defaultClient.authentications['api-key'];
+apiKey.apiKey = process.env.BREVO_API_KEY;
+
+const tranEmailApi = new SibApiV3Sdk.TransactionalEmailsApi();
+
 
 exports.createTicket = async (req, res) => {
     const {userId, subject, description, dateCreated, status, priority, ticketId, email, category} = req.body;
@@ -81,21 +89,10 @@ exports.getAllTickets = async (req,res) => {
     }
 }
 
+
+
 exports.emailUser = async (req, res) => {
   const { email, subject, message, ticket_id } = req.body;
-
-  const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  },
-  connectionTimeout: 10000, // 10 sec
-  greetingTimeout: 10000,
-  socketTimeout: 10000
-});
 
   if (!email || !subject || !message) {
     return res.status(400).json({
@@ -181,35 +178,44 @@ exports.emailUser = async (req, res) => {
     </div>
   `;
 
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
-    to: email,
-    subject: `Response to your ticket #${ticket_id}: ${subject}`,
-    text: message, // fallback for email clients that don't render HTML
-    html: htmlTemplate
-  };
-
   try {
-    const info = await transporter.sendMail(mailOptions);
+    const response = await tranEmailApi.sendTransacEmail({
+      sender: {
+        email: process.env.BREVO_SENDER_EMAIL,
+        name: "Bustling Customer Support Team"
+      },
+      to: [
+        {
+          email: email
+        }
+      ],
+      subject: `Response to your ticket #${ticket_id}: ${subject}`,
+      htmlContent: htmlTemplate,
+      textContent: message
+    });
 
-    if (info.accepted.length > 0) {
+    // If email was sent successfully, close the ticket
+    if (response && response.messageId) {
       await database.updateById({
         table: 'tickets',
         id: ticket_id,
-        data: { status: 'close' }, // use the correct status
+        data: { status: 'close' },
         attribute: 'ticket_id'
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Email sent successfully",
-      data: null
+      data: response
     });
+
   } catch (e) {
-    res.status(500).json({
+    console.error("Brevo Email Error:", e.response?.body || e.message);
+
+    return res.status(500).json({
       success: false,
-      message: `${e.message}`,
+      message: e.response?.body?.message || e.message || "Failed to send email",
       data: null
     });
   }
