@@ -1631,13 +1631,8 @@ exports.fetchAdminDetails = async (req, res) => {
 
 //========================================================//
 
-// ✅ Hardcoded Admin Credentials
-const ADMIN_CREDENTIALS = {
-  phone: "08123456789", 
-  password: "admin123"  
-};
 
-// ✅ Admin Login - No Database Check
+
 exports.adminLogin = async (req, res) => {
   try {
     const { phone, password } = req.body;
@@ -1646,10 +1641,19 @@ exports.adminLogin = async (req, res) => {
       return res.status(400).json({ message: "Phone and password required" });
     }
 
-    // Check against hardcoded credentials
-    if (phone !== ADMIN_CREDENTIALS.phone || password !== ADMIN_CREDENTIALS.password) {
-      return res.status(401).json({ message: "Invalid admin credentials" });
-    }
+    const data = await database.findOne({table: "admin", attribute: 'phone', item:'id, password, phone', value:phone});
+    // 1. Check if user even exists
+      if (!data) {
+        return res.status(401).json({ success: false, message: 'Invalid Credentials' });
+      }
+
+      // 2. AWAIT the comparison
+      const isPasswordCorrect = await bcrypt.compare(password, data.password);
+
+      if (!isPasswordCorrect) {
+        return res.status(401).json({ success: false, message: 'Invalid Credentials' });
+      }
+    
 
     // Set session with hardcoded admin user
     req.session.user = {
