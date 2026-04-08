@@ -254,11 +254,12 @@ exports.sendCode = async (req, res) => {
                 });
              }
 
-             await database.insert({
+             await database.updateByEmail({
                 table:'users',
                  data:{
                     'otp':otp
-                 }
+                 },
+                 email:email
                 });
 
             return res.status(200).json({

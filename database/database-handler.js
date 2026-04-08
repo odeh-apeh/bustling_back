@@ -142,6 +142,28 @@ class Database {
     }
   }
 
+   async updateByEmail({ table, email, data, attribute = 'email' }) {
+    try {
+      const keys = Object.keys(data);
+      const values = Object.values(data);
+
+      const setClause = keys
+        .map((key, index) => `${key} = $${index + 1}`)
+        .join(', ');
+
+      const query = `
+        UPDATE ${table}
+        SET ${setClause}
+        WHERE ${attribute} = $${keys.length + 1}
+        RETURNING *;
+      `;
+
+      return await this.queryOne(query, [...values, email]);
+    } catch (e) {
+      this.throwError(e.message);
+    }
+  }
+
   // =========================
   // DELETE BY ID
   // =========================
