@@ -1576,7 +1576,7 @@ exports.updateAdminDetails = async (req, res) => {
   }
   const hashedPassword = await bcrypt.hash(password, 10);
   try{
-    const result = await database.updateByEmail({table: "admin", data:{
+    const result = await database.updateById({table: "admin", data:{
       name,
       username,
       email,
@@ -1585,8 +1585,8 @@ exports.updateAdminDetails = async (req, res) => {
       factor: factor || false,
       otp: ''
   },
-  attribute: 'email',
-  email:email
+  attribute: 'id',
+  email:id
 });
 
   if(!result){
