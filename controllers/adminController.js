@@ -1608,6 +1608,7 @@ exports.fetchAdminDetails = async (req, res) => {
   try{
     const data = await database.findAll({
       table:'admin',
+      hasAttribute:false
     });
     if(!data){
       return res.status(500).json({success:false, message: 'No records in database', data: null });
