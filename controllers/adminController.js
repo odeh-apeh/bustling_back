@@ -1604,6 +1604,25 @@ exports.updateAdminDetails = async (req, res) => {
   }
 }
 
+exports.fetchAdminDetails = async (req, res) => {
+  try{
+    const data = await database.findAll({
+      table:'admin',
+    });
+    if(!data){
+      return res.status(500).json({success:false, message: 'No records in database', data: null });
+    }
+    return res.status(201).json({
+      success: true,
+      message: 'Processed Successfully',
+      data: data
+    });
+  }catch(e){
+    console.error("Error in geting admin details:", err);
+    res.status(500).json({success:false, message: err.message, data: null });
+  }
+}
+
 //========================================================//
 
 // ✅ Hardcoded Admin Credentials
