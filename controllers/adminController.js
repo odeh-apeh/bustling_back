@@ -1641,7 +1641,7 @@ exports.adminLogin = async (req, res) => {
       return res.status(400).json({ message: "Phone and password required" });
     }
 
-    const data = await database.findOne({table: "admin", attribute: 'phone', item:'id, password, phone', value:phone});
+    const data = await database.findOne({table: "admin", attribute: 'phone', item:'id, password, phone, email, name', value:phone});
     // 1. Check if user even exists
       if (!data) {
         return res.status(401).json({ success: false, message: 'Invalid Credentials' });
@@ -1658,9 +1658,9 @@ exports.adminLogin = async (req, res) => {
     // Set session with hardcoded admin user
     req.session.user = {
       id: 999999, // Fixed admin ID
-      name: 'System Administrator',
-      phone: ADMIN_CREDENTIALS.phone,
-      email: 'admin@system.com',
+      name: data.name,
+      phone: data.phone,
+      email: data.email,
       role: 'admin',
       is_super_admin: true
     };
