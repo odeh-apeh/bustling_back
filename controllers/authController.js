@@ -234,6 +234,19 @@ exports.sendCode = async (req, res) => {
     const {email} = req.body;
     const otp = generateCode();
     try{
+        const data = database.findOneByEmail({
+            table:'users',
+            item:'email',
+            attribute:'email',
+            email:email
+        });
+        if(!data){
+            return res.status(500).json({
+                success: false,
+                message: 'User does not exists',
+                data: null
+                });
+        }
         const html = otpTemplate({
             code: otp,
              title: "Your Login Verification Code",
