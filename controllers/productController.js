@@ -635,7 +635,7 @@ exports.getSellerPhone = async (req, res) => {
     const result = await database.findOne({
       table: 'users',
       attribute: 'id',
-      attributeValue: seller_id,
+      value: seller_id,
       item: 'phone'
     });
     
