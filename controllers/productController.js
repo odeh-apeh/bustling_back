@@ -635,7 +635,7 @@ exports.getSellerPhone = async (req, res) => {
     const result = await database.findOne({
       table: 'users',
       attribute: 'id',
-      value: seller_id,
+      value: Number(seller_id),
       item: 'phone'
     });
     
@@ -646,6 +646,6 @@ exports.getSellerPhone = async (req, res) => {
     res.status(200).json({ success: true, message: "Processed successfully", data: { phone: result.phone } });
   }catch(err){
     console.error(err);
-    res.status(500).json({ success: false, message: "Error fetching seller phone number", data:null });
+    res.status(500).json({ success: false, message: err.message, data:null });
   }
 }
