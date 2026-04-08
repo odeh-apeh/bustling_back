@@ -1,4 +1,5 @@
 const database = require('../database/database-handler');
+const nodemailer = require('nodemailer');
 
 exports.createTicket = async (req, res) => {
     const {userId, subject, description, dateCreated, status, priority, ticketId, email, category} = req.body;
@@ -79,3 +80,132 @@ exports.getAllTickets = async (req,res) => {
         res.status(500).json({ success: false, message: `${e.message}`, data: null });
     }
 }
+
+exports.emailUser = async (req, res) => {
+  const { email, subject, message, ticket_id } = req.body;
+
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
+  });
+
+  if (!email || !subject || !message) {
+    return res.status(400).json({
+      success: false,
+      message: "Email, subject and message are required",
+      data: null
+    });
+  }
+
+  const htmlTemplate = `
+    <div style="margin:0;padding:0;background-color:#f4f7fb;font-family:Arial,Helvetica,sans-serif;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f4f7fb;padding:30px 0;">
+        <tr>
+          <td align="center">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.08);">
+              
+              <!-- Header -->
+              <tr>
+                <td style="background:linear-gradient(135deg,#0A6BFF,#3986f9);padding:28px 32px;color:#ffffff;">
+                  <h1 style="margin:0;font-size:24px;font-weight:700;">Support Ticket Update</h1>
+                  <p style="margin:8px 0 0;font-size:14px;opacity:0.95;">
+                    Ticket ID: <strong>#${ticket_id || 'N/A'}</strong>
+                  </p>
+                </td>
+              </tr>
+
+              <!-- Body -->
+              <tr>
+                <td style="padding:32px;">
+                  <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.7;">
+                    Hello,
+                  </p>
+
+                  <p style="margin:0 0 20px;font-size:15px;color:#374151;line-height:1.7;">
+                    We’ve reviewed your support request and sent an update regarding your ticket:
+                  </p>
+
+                  <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px;margin-bottom:20px;">
+                    <p style="margin:0 0 8px;font-size:13px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">
+                      Subject
+                    </p>
+                    <p style="margin:0;font-size:16px;color:#111827;font-weight:600;">
+                      ${subject}
+                    </p>
+                  </div>
+
+                  <div style="background:#f9fafb;border-left:4px solid #3986f9;border-radius:10px;padding:18px 20px;margin-bottom:24px;">
+                    <p style="margin:0 0 10px;font-size:13px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">
+                      Message from Support
+                    </p>
+                    <p style="margin:0;font-size:15px;color:#374151;line-height:1.8;white-space:pre-line;">
+                      ${message}
+                    </p>
+                  </div>
+
+                  <p style="margin:0 0 18px;font-size:15px;color:#374151;line-height:1.7;">
+                    If you still need help or have additional questions, feel free to reply or create another support request.
+                  </p>
+
+                  <div style="margin-top:28px;padding-top:20px;border-top:1px solid #e5e7eb;">
+                    <p style="margin:0;font-size:15px;color:#111827;font-weight:600;">Best regards,</p>
+                    <p style="margin:6px 0 0;font-size:14px;color:#6b7280;">
+                      Customer Support Team
+                    </p>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Footer -->
+              <tr>
+                <td style="padding:20px 32px;background:#f8fafc;border-top:1px solid #e5e7eb;text-align:center;">
+                  <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.6;">
+                    This is an automated support response.<br />
+                    Please do not share sensitive personal information by email.
+                  </p>
+                </td>
+              </tr>
+
+            </table>
+          </td>
+        </tr>
+      </table>
+    </div>
+  `;
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: `Response to your ticket #${ticket_id}: ${subject}`,
+    text: message, // fallback for email clients that don't render HTML
+    html: htmlTemplate
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+
+    if (info.accepted.length > 0) {
+      await database.updateById({
+        table: 'tickets',
+        id: ticket_id,
+        data: { status: 'close' }, // use the correct status
+        attribute: 'ticket_id'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Email sent successfully",
+      data: null
+    });
+  } catch (e) {
+    res.status(500).json({
+      success: false,
+      message: `${e.message}`,
+      data: null
+    });
+  }
+};
