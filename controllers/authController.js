@@ -1,5 +1,8 @@
 const bcrypt = require('bcryptjs');
 const db = require('../config/db');
+const emailService = require('../helpers/email-service');
+const otpTemplate = require('../helpers/html-template');
+const database = require('../database/database-handler');
 
 //user registration
 exports.register = async (req, res) => {
@@ -226,3 +229,143 @@ exports.checkAuth = async (req, res) => {
         });
     }
 };
+
+exports.sendCode = async (req, res) => {
+    const {email} = req.body;
+    const otp = generateCode();
+    try{
+        const html = otpTemplate({
+            code: otp,
+             title: "Your Login Verification Code",
+            appName: "Bustling",
+            expiresIn: "10 minutes"
+        });
+        const result = await emailService.sendEmail({
+            to: email,
+            subject: "Your OTP Code",
+            htmlContent: html,
+            textContent: `Your verification code is ${otp}. It expires in 10 minutes.`
+        });
+                if (!result.success) {
+                return res.status(500).json({
+                success: false,
+                message: result.error,
+                data: null
+                });
+             }
+
+             await database.insert({
+                table:'users',
+                 data:{
+                    'otp':otp
+                 }
+                });
+
+            return res.status(200).json({
+                success: true,
+                message: "OTP sent successfully",
+                data: null
+            });
+    }catch(e){
+        res.status(500).json({
+            success: false,
+            message: e.message,
+            data: null
+        })
+    }
+}
+
+function generateCode(){
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    return otp;
+}
+
+exports.verifyCode = async (req, res) => {
+    const {email, code} = req.body;
+    try{
+        const data = await database.findOneByEmail({
+            email: email,
+            table: 'users',
+            attribute:'email',
+            item:'email'
+        });
+        if(!data){
+            return res.status(400).json({
+                success: false,
+                message: "Email not found",
+                data: null
+            });
+        }
+        
+        if(data.otp !== code){
+            return res.status(400).json({
+                success: false,
+                message: "Invalid code",
+                data: null
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Code verified successfully",
+            data: null
+        });
+        
+    }catch(e){
+        res.status(500).json({
+            success: false,
+            message: e.message,
+            data: null
+        })
+    }
+}
+
+exports.createNewPassword = async (req, res) => {
+    const {email, code, newPassword} = req.body;
+    try{
+        const data = await database.findOneByEmail({
+            email: email,
+            table: 'users',
+            attribute:'email',
+            item:'email'
+        });
+        if(!data){
+            return res.status(400).json({
+                success: false,
+                message: "Email not found",
+                data: null
+            });
+        }
+
+        if(data.otp != code){
+            return res.status(400).json({
+                success: false,
+                message: "Invalid Code",
+                data: null
+            });
+        }
+        
+        const hashPassword = await bcrypt.hash(newPassword, 10);
+        await database.updateById({
+            table:'users',
+            id: data.id,
+            data:{
+                password: hashPassword
+            },
+            attribute:'id'
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: "Password updated successfully",
+            data: null
+        });
+        
+    }catch(e){
+        res.status(500).json({
+            success: false,
+            message: e.message,
+            data: null
+        })
+    }
+}

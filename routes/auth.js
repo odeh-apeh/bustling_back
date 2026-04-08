@@ -1,6 +1,6 @@
 const express = require ('express');
 const router = express.Router();
-const { register, login, logout, getCurrentUser } = require ("../controllers/authController");
+const { register, login, logout, getCurrentUser, sendCode, verifyCode, createNewPassword } = require ("../controllers/authController");
 const authMiddleware = require("../middlewares/authMiddleware");
 
 //sign up route
@@ -11,6 +11,11 @@ router.get("/me", getCurrentUser)
 
 
 router.post("/logout", authMiddleware, logout);
+
+//reset password
+router.post("/send-code", sendCode);
+router.post("verify-code", verifyCode);
+router.post("/create-new-password", createNewPassword);
 
 module.exports = router;
 
