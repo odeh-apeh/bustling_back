@@ -29,5 +29,6 @@ router.put("/:id", authMiddleware, upload.array("images", 4), productController.
 
 // ✅ Delete product
 router.delete("/:id", authMiddleware, productController.deleteProduct);
+router.get("/seller/:seller_id/phone", productController.getSellerPhone);
 
 module.exports = router;

@@ -1,4 +1,5 @@
 // controllers/productController.js
+const database = require("../database/database-handler")
 const db = require("../config/db");
 const fs = require("fs");
 const path = require("path");
@@ -626,3 +627,25 @@ exports.getAllCategoriesWithAttributes = async (req, res) => {
     });
   }
 };
+
+
+exports.getSellerPhone = async (req, res) => {
+  const { seller_id } = req.params;
+  try{
+    const result = await database.findOne({
+      table: 'users',
+      attribute: 'id',
+      attributeValue: seller_id,
+      item: 'phone'
+    });
+    
+    if (!result) {
+      return res.status(404).json({ success: false, message: "Seller not found", data:null });
+    }
+    
+    res.status(200).json({ success: true, message: "Processed successfully", data: { phone: result.phone } });
+  }catch(err){
+    console.error(err);
+    res.status(500).json({ success: false, message: "Error fetching seller phone number", data:null });
+  }
+}
