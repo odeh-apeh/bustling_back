@@ -234,7 +234,7 @@ exports.sendCode = async (req, res) => {
     const {email} = req.body;
     const otp = generateCode();
     try{
-        const data = database.findOneByEmail({
+        const data = await database.findOneByEmail({
             table:'users',
             item:'email',
             attribute:'email',
