@@ -1568,7 +1568,7 @@ exports.saveAdminDetails = async (req, res) => {
 
 
 exports.updateAdminDetails = async (req, res) => {
-  const {name, username, email, phone, password, factor} = req.body;
+  const {name, username, email, phone, password, factor, id} = req.body;
 
   // Basic validation
   if (!name || !username || !email || !phone || !password) {
