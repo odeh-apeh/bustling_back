@@ -1576,7 +1576,7 @@ exports.updateAdminDetails = async (req, res) => {
   }
   const hashedPassword = await bcrypt.hash(password, 10);
   try{
-    const data = await database.findOneById({table: "admin", attribute: 'id', item:'id, password',});
+    const data = await database.findOneById({table: "admin", attribute: 'id', item:'id, password', id:id});
     const check = await bcrypt.compare(password, data.password);
     if(!check){
       return res.status(400).json({success:false, message: "Current password is Incorrect", data:null });
