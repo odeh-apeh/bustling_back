@@ -14,7 +14,7 @@ router.post("/logout", authMiddleware, logout);
 
 //reset password
 router.post("/send-code", sendCode);
-router.post("verify-code", verifyCode);
+router.post("/verify-code", verifyCode);
 router.post("/create-new-password", createNewPassword);
 
 module.exports = router;
