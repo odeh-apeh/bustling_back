@@ -1568,7 +1568,7 @@ exports.saveAdminDetails = async (req, res) => {
 
 
 exports.updateAdminDetails = async (req, res) => {
-  const {name, username, email, phone, password, factor, id} = req.body;
+  const {name, username, email, phone, password, factor, id, currentPassword} = req.body;
 
   // Basic validation
   if (!name || !username || !email || !phone || !password) {
@@ -1577,7 +1577,7 @@ exports.updateAdminDetails = async (req, res) => {
   const hashedPassword = await bcrypt.hash(password, 10);
   try{
     const data = await database.findOneById({table: "admin", attribute: 'id', item:'id, password', id:id});
-    const check = await bcrypt.compare(password, data.password);
+    const check = await bcrypt.compare(currentPassword, data.password);
     if(!check){
       return res.status(400).json({success:false, message: "Current password is Incorrect", data:null });
     }
