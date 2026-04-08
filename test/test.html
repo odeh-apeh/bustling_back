@@ -44,9 +44,15 @@
     // Check session (/me)
     checkSessionBtn.addEventListener('click', async () => {
       try {
-        const res = await fetch('http://localhost:3000/api/auth/me', {
-          method: 'GET',
+        const res = await fetch(`https://bustling-back.onrender.com/api/admin/tickets/email-user`, {
+          method: 'POST',
           credentials: 'include', // important for session cookies
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: 'user@example.com',
+            subject: 'Test Email',
+            message: 'This is a test email.'
+          })
         });
         const data = await res.json();
         output.textContent = "/me Response:\n" + JSON.stringify(data, null, 2);
