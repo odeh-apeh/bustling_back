@@ -1,4 +1,7 @@
 const db = require("../config/db");
+const bcrypt = require('bcryptjs');
+const database = require("../database/database-handler");
+
 
 // ✅ Dashboard Stats
 exports.getDashboardStats = async (req, res) => {
@@ -1527,6 +1530,81 @@ exports.updateEscrowStatus = async (req, res) => {
     client.release();
   }
 };
+
+//========================================================//
+exports.saveAdminDetails = async (req, res) => {
+  const {name, username, email, phone, password, factor} = req.body;
+
+  // Basic validation
+  if (!name || !username || !email || !phone || !password) {
+    return res.status(400).json({ message: "All fields are required" });
+  }
+  const hashedPassword = await bcrypt.hash(password, 10);
+  try{
+    const result = await database.insert({table: "admin", data:{
+      name,
+      username,
+      email,
+      phone,
+      password: hashedPassword, // In production, hash the password before saving
+      factor: factor || false,
+      otp: ''
+  }})
+
+  if(!result){
+    console.error("Error in saveAdminDetails:", err);
+    res.status(500).json({success:false, message: "An error has occured", data: null });
+  }
+
+  return res.status(201).json({
+    success: true,
+    message: "Credentials saved successfully", database: result
+  });
+  }catch(err){
+    console.error("Error in saveAdminDetails:", err);
+    res.status(500).json({success:false, message: err.message, data: null });
+  }
+}
+
+
+exports.updateAdminDetails = async (req, res) => {
+  const {name, username, email, phone, password, factor} = req.body;
+
+  // Basic validation
+  if (!name || !username || !email || !phone || !password) {
+    return res.status(400).json({ message: "All fields are required" });
+  }
+  const hashedPassword = await bcrypt.hash(password, 10);
+  try{
+    const result = await database.updateByEmail({table: "admin", data:{
+      name,
+      username,
+      email,
+      phone,
+      password: hashedPassword, // In production, hash the password before saving
+      factor: factor || false,
+      otp: ''
+  },
+  attribute: 'email',
+  email:email
+});
+
+  if(!result){
+    console.error("Error in saveAdminDetails:", err);
+    res.status(500).json({success:false, message: "An error has occured", data: null });
+  }
+
+  return res.status(201).json({
+    success: true,
+    message: "Credentials updated successfully", database: result
+  });
+  }catch(err){
+    console.error("Error in saveAdminDetails:", err);
+    res.status(500).json({success:false, message: err.message, data: null });
+  }
+}
+
+//========================================================//
 
 // ✅ Hardcoded Admin Credentials
 const ADMIN_CREDENTIALS = {
