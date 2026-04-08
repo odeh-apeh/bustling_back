@@ -2,7 +2,7 @@ const database = require('../database/database-handler');
 
 exports.getNotifications = async (req, res) => {
   try {
-    const userId = req.session.userId;
+    const {userId} = req.body;
 
     const notifications = await database.findAll({
       table: 'notifications',
@@ -37,7 +37,7 @@ exports.getNotifications = async (req, res) => {
 exports.markAsRead = async (req, res) => {
   try {
     const notificationId = req.params.id;
-    const userId = req.session.userId;
+    const {userId} = req.body;
 
     const updated = await database.updateById({
       table: 'notifications',
@@ -58,7 +58,7 @@ exports.markAsRead = async (req, res) => {
     res.json({
       success: true,
       message: "Notification marked as read"
-      
+
     });
   } catch (error) {
     console.error('Error marking notification as read:', error);
