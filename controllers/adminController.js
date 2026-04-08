@@ -1576,6 +1576,11 @@ exports.updateAdminDetails = async (req, res) => {
   }
   const hashedPassword = await bcrypt.hash(password, 10);
   try{
+    const data = await database.findOneById({table: "admin", attribute: 'id', item:'id, password', value: id});
+    const check = await bcrypt.compare(password, data.password);
+    if(!check){
+      return res.status(400).json({success:false, message: "Current password is Incorrect", data:null });
+    }
     const result = await database.updateById({table: "admin", data:{
       name,
       username,
@@ -1584,10 +1589,10 @@ exports.updateAdminDetails = async (req, res) => {
       password: hashedPassword, // In production, hash the password before saving
       factor: factor || false,
       otp: ''
-  },
-  attribute: 'id',
-  id:id
-});
+      },
+      attribute: 'id',
+      id:id
+    });
 
   if(!result){
     console.error("Error in saveAdminDetails:", err);
