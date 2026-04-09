@@ -1675,23 +1675,9 @@ function generateCode(){
 }
 
 exports.sendOtp = async (req, res) => {
-  const {id} = req.params;
+  const {email} = req.params;
   const code = generateCode();
   try{
-    const data = database.findOneById({
-      id:id,
-      item:'email',
-      table:'admin',
-      attribute:'id'
-    });
-    if(!data){
-      return res.status(500).json({
-        success: false,
-        message:'Invalid id',
-        data: null
-      });
-    }
-
     const html = otpTemplate({
             code: code,
              title: "Two factor authentication",
@@ -1699,7 +1685,7 @@ exports.sendOtp = async (req, res) => {
             expiresIn: "10 minutes"
     });
     const mail = await emailService.sendEmail({
-      to: data.email,
+      to: email,
       subject: 'Two factor authentication',
       htmlContent: html,
       textContent: `Your verification code is ${otp}. It expires in 10 minutes.`
@@ -1722,12 +1708,12 @@ exports.sendOtp = async (req, res) => {
 }
 
 exports.verifyCode = async (req, res) => {
-    const {id, code} = req.body;
+    const {email, code} = req.body;
     try{
-        const data = await database.findOneById({
-            id: id,
+        const data = await database.findOneByEmail({
+            email: email,
             table: 'admin',
-            attribute:'id',
+            attribute:'email',
             item:'otp'
         });
         if(!data){
