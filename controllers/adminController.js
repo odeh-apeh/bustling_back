@@ -1620,7 +1620,7 @@ exports.updateAdminDetails = async (req, res) => {
 
   return res.status(201).json({
     success: true,
-    message: "Credentials updated successfully", database: result
+    message: "Credentials updated successfully", data: result
   });
   }catch(err){
     console.error("Error in saveAdminDetails:", err);
