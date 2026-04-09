@@ -35,13 +35,13 @@ exports.registerDeliveryCompany = async (req, res) => {
       [userId]
     );
 
-    if (existing.rows.length > 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        success: false,
-        message: "You already have a delivery company registered"
-      });
-    }
+    // if (existing.rows.length > 0) {
+    //   await client.query('ROLLBACK');
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "You already have a delivery company registered"
+    //   });
+    // }
 
     // Insert delivery company - PostgreSQL uses RETURNING id instead of insertId
     const result = await client.query(
