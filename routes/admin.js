@@ -57,7 +57,7 @@ router.post("/update-admin-details", adminOnly, adminController.updateAdminDetai
 router.get("/fetch-admin-details", adminOnly, adminController.fetchAdminDetails);
 router.get("/fetch-all-admins", adminOnly, adminController.getAllAdmins);
 router.delete("/delete-admin", adminOnly, adminController.deleteAdmin);
-router.get("/send-otp/:id", adminController.sendOtp);
+router.get("/send-otp/:email", adminController.sendOtp);
 router.post("/verify-otp", adminController.verifyCode);
 
 
