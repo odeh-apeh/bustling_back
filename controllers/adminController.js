@@ -1657,7 +1657,7 @@ exports.adminLogin = async (req, res) => {
 
     // Set session with hardcoded admin user
     req.session.user = {
-      id: 999999, // Fixed admin ID
+      id: 999999,
       name: data.name,
       phone: data.phone,
       email: data.email,

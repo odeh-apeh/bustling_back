@@ -15,7 +15,7 @@ class Database {
     const data = await db.query(query, values);
 
     if (data.rows.length === 0) {
-      this.throwError();
+      return null;
     }
 
     return data.rows[0];
