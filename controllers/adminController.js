@@ -1648,6 +1648,25 @@ exports.fetchAdminDetails = async (req, res) => {
   }
 }
 
+exports.deleteAdmin = async (req, res) => {
+  const {id} = req.body;
+  try{
+    const data = await database.deleteById({
+      table:'admin',
+      id:id,
+      attribute:'id'
+    });
+    return res.status(201).json({
+      success: true,
+      message: 'Admin deleted successfully',
+      data: null
+    });
+  }catch(e){
+    res.status(500).json({success:false, message: err.message, data: null });
+
+  }
+}
+
 //========================================================//
 
 
