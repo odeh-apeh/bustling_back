@@ -1919,7 +1919,7 @@ exports.findOneAdmin = async(req, res) => {
       attribute:'id'
     });
     return res.status(201).json({
-      success:false,
+      success:true,
       message: 'Processed Successfully',
       data: data
     });
