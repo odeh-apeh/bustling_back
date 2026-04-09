@@ -1844,7 +1844,7 @@ exports.sendOtp = async (req, res) => {
       to: email,
       subject: "Two factor authentication",
       htmlContent: html,
-      textContent: `Your verification code is ${otp}. It expires in 10 minutes.`,
+      textContent: `Your verification code is ${code}. It expires in 10 minutes.`,
     });
     if (!mail.success) {
       return res.status(500).json({
