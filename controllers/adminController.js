@@ -1577,7 +1577,7 @@ exports.saveAdminDetails = async (req, res) => {
 
   return res.status(201).json({
     success: true,
-    message: "Credentials saved successfully", database: result
+    message: "Credentials saved successfully", data: result
   });
   }catch(err){
     console.error("Error in saveAdminDetails:", err);
