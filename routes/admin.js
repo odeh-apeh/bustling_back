@@ -55,5 +55,6 @@ router.post("/refund-escrow", adminOnly, adminController.refundEscrow);
 router.post("/save-admin-details", adminOnly, adminController.saveAdminDetails);
 router.post("/update-admin-details", adminOnly, adminController.updateAdminDetails);
 router.get("/fetch-admin-details", adminOnly, adminController.fetchAdminDetails);
+router.get("fetch-all-admins", adminOnly, adminController.getAllAdmins);
 
 module.exports = router;

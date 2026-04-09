@@ -1532,6 +1532,25 @@ exports.updateEscrowStatus = async (req, res) => {
 };
 
 //========================================================//
+exports.getAllAdmins = async (req, res) => {
+  try{
+    const data = await database.findAll({table:'admin', hasAttribute:false});
+    if(!data){
+      return res.status(500).json({
+        success: false,
+        message: "No admins available",
+        data: null
+      });
+    }
+    return res.status(201).json({
+      success: true,
+      message: "Processed Successfully",
+      data: data
+    });
+  }catch(e){
+    res.status(500).json({success:false, message: e.message, data:null});
+  }
+}
 exports.saveAdminDetails = async (req, res) => {
   const {name, username, email, phone, password, factor} = req.body;
 
