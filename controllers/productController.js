@@ -117,8 +117,8 @@ exports.getAllProducts = async (req, res) => {
   try {
     const { type = 'product', category, search, page = 1, limit = 20 } = req.query;
     
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
     const offsetNum = (pageNum - 1) * limitNum;
 
     // Ensure valid type
@@ -134,13 +134,12 @@ exports.getAllProducts = async (req, res) => {
         p.price,
         p.image_url,
         p.created_at,
-        p.images::text AS images,
-        p.attributes::text AS attributes,
+        COALESCE(p.images::text, '[]') AS images,
+        COALESCE(p.attributes::text, '{}') AS attributes,
         p.location,
         p.type,
         u.name AS seller_name,
-        u.location AS seller_location,
-        u.id AS seller_id
+        u.location AS seller_location
       FROM products p
       LEFT JOIN users u ON p.seller_id = u.id
       WHERE p.type = $1
@@ -149,50 +148,62 @@ exports.getAllProducts = async (req, res) => {
     const params = [sanitizedType];
     let paramCounter = 2;
 
-    // ✅ FIX: Handle category - if it's a name, convert to ID first
+    // Handle category filter
     if (category && category !== 'All' && category !== 'undefined' && category !== 'null') {
-      // Check if category is a number (ID) or string (name)
       const isNumeric = /^\d+$/.test(category);
       
       if (isNumeric) {
-        // Category is an ID (integer)
         query += ` AND p.category_id = $${paramCounter}`;
-        params.push(parseInt(category));
+        params.push(parseInt(category, 10));
         paramCounter++;
       } else {
-        // Category is a name - get the category ID first
-        const categoryResult = await db.query(
-          "SELECT id FROM categories WHERE name = $1",
-          [category]
-        );
-        
-        if (categoryResult.rows.length > 0) {
-          query += ` AND p.category_id = $${paramCounter}`;
-          params.push(categoryResult.rows[0].id);
-          paramCounter++;
+        try {
+          const categoryResult = await db.query(
+            "SELECT id FROM categories WHERE name = $1 LIMIT 1",
+            [category]
+          );
+          
+          if (categoryResult.rows.length > 0) {
+            query += ` AND p.category_id = $${paramCounter}`;
+            params.push(categoryResult.rows[0].id);
+            paramCounter++;
+          }
+        } catch (err) {
+          console.warn('⚠️ Category lookup failed:', err.message);
+          // Continue without category filter
         }
-        // If category not found, just ignore the filter
       }
     }
 
-    // Search filter
-    if (search && search !== 'undefined' && search !== 'null') {
+    // Handle search filter - FIXED VERSION
+    if (search && typeof search === 'string' && search.trim() && search !== 'undefined' && search !== 'null') {
+      const searchTerm = `%${search.trim()}%`;
       query += ` AND (p.name ILIKE $${paramCounter} OR p.description ILIKE $${paramCounter})`;
-      params.push(`%${search}%`);
-      paramCounter++;
-      params.push(`%${search}%`);
+      params.push(searchTerm);
       paramCounter++;
     }
 
-    // FINAL ORDER BY + LIMIT/OFFSET
+    // Add ORDER BY, LIMIT, and OFFSET
     query += ` ORDER BY p.created_at DESC LIMIT $${paramCounter} OFFSET $${paramCounter + 1}`;
     params.push(limitNum, offsetNum);
 
     console.log('🔍 Products Query:', query);
     console.log('📋 Products Params:', params);
+    console.log('📊 Page:', pageNum, 'Limit:', limitNum, 'Offset:', offsetNum);
 
     const result = await db.query(query, params);
     const products = result.rows;
+
+    // Get total count for pagination (optional)
+    let totalCount = products.length;
+    if (products.length === limitNum) {
+      // Optional: Run a separate count query for accurate pagination
+      const countQuery = query.replace(/SELECT.*FROM/, 'SELECT COUNT(*) as total FROM')
+        .replace(/ORDER BY.*$/, '');
+      const countParams = params.slice(0, -2); // Remove limit and offset params
+      const countResult = await db.query(countQuery, countParams);
+      totalCount = parseInt(countResult.rows[0]?.total || products.length, 10);
+    }
 
     const formatted = products.map(product => ({
       id: product.id,
@@ -203,14 +214,16 @@ exports.getAllProducts = async (req, res) => {
       type: product.type,
       seller_name: product.seller_name,
       seller_id: product.seller_id,
-      location: product.seller_location,
-      images: product.images ? (() => {
+      location: product.location || product.seller_location,
+      images: (() => {
         try {
-          return JSON.parse(product.images);
+          if (!product.images) return [];
+          const parsed = JSON.parse(product.images);
+          return Array.isArray(parsed) ? parsed : [];
         } catch (e) {
-          return [];
+          return product.image_url ? [product.image_url] : [];
         }
-      })() : [],
+      })(),
       created_at: product.created_at
     }));
 
@@ -221,7 +234,8 @@ exports.getAllProducts = async (req, res) => {
       pagination: {
         page: pageNum,
         limit: limitNum,
-        total: formatted.length
+        total: totalCount,
+        totalPages: Math.ceil(totalCount / limitNum)
       }
     });
 
@@ -230,7 +244,7 @@ exports.getAllProducts = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error fetching products',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
