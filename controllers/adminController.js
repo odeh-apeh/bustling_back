@@ -1910,6 +1910,28 @@ exports.verifyCode = async (req, res) => {
   }
 };
 
+exports.findOneAdmin = async(req, res) => {
+  const {id} = req.params;
+  try{
+    const data = await database.findOneById({
+      table:'admin',
+      id:id,
+      attribute:'id'
+    });
+    return res.status(201).json({
+      success:false,
+      message: 'Processed Successfully',
+      data: data
+    });
+  }catch(e){
+    res.status(500).json({
+      success: false,
+      message: e.message,
+      data: null,
+    });
+  }
+}
+
 //========================================================//
 
 exports.adminLogin = async (req, res) => {
