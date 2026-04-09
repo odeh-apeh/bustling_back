@@ -70,7 +70,7 @@ exports.registerDeliveryCompany = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "Delivery company registered successfully! Your profile is under review.",
+      message: "Delivery company registered successfully!",
       companyId: companyId
     });
 
