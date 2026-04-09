@@ -59,7 +59,7 @@ router.get("/fetch-all-admins", adminOnly, adminController.getAllAdmins);
 router.delete("/delete-admin", adminOnly, adminController.deleteAdmin);
 router.get("/send-otp/:email", adminOnly, adminController.sendOtp);
 router.post("/verify-otp", adminOnly, adminController.verifyCode);
-router.get("/find-one", adminOnly, adminController.findOneAdmin);
+router.get("/find-one/:id", adminOnly, adminController.findOneAdmin);
 
 
 module.exports = router;
