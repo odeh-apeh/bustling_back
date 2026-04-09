@@ -21,8 +21,7 @@ exports.registerDeliveryCompany = async (req, res) => {
     } = req.body;
 
     // Validate required fields
-    if (!companyName || !phoneNumber || !state || !localGovernment || 
-        !vehicleType || !deliveryTypes || deliveryTypes.length === 0) {
+    if (!companyName || !phoneNumber || !state || !localGovernment) {
       await client.query('ROLLBACK');
       return res.status(400).json({ 
         success: false,
