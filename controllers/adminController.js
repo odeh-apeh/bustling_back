@@ -1,6 +1,8 @@
 const db = require("../config/db");
 const bcrypt = require('bcryptjs');
 const database = require("../database/database-handler");
+const emailService = require('../helpers/email-service');
+const otpTemplate = require('../helpers/html-template');
 
 
 // ✅ Dashboard Stats
@@ -1665,6 +1667,98 @@ exports.deleteAdmin = async (req, res) => {
     res.status(500).json({success:false, message: err.message, data: null });
 
   }
+}
+
+function generateCode(){
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    return otp;
+}
+
+exports.sendOtp = async (req, res) => {
+  const {id} = req.params;
+  const code = generateCode();
+  try{
+    const data = database.findOneById({
+      id:id,
+      item:'email',
+      table:'admin',
+      attribute:'id'
+    });
+    if(!data){
+      return res.status(500).json({
+        success: false,
+        message:'Invalid id',
+        data: null
+      });
+    }
+
+    const html = otpTemplate({
+            code: code,
+             title: "Two factor authentication",
+            appName: "Bustling Admin",
+            expiresIn: "10 minutes"
+    });
+    const mail = await emailService.sendEmail({
+      to: data.email,
+      subject: 'Two factor authentication',
+      htmlContent: html,
+      textContent: `Your verification code is ${otp}. It expires in 10 minutes.`
+    });
+    if(!mail.success){
+      return res.status(500).json({
+                success: false,
+                message: result.error,
+                data: null
+                });
+    }
+    res.status(201).json({
+      success:true,
+      message:'Otp sent successfully',
+      data: null
+    });
+  }catch(e){
+    res.status(500).json({success:false, message: e.message, data: null });
+  }
+}
+
+exports.verifyCode = async (req, res) => {
+    const {id, code} = req.body;
+    try{
+        const data = await database.findOneById({
+            id: id,
+            table: 'admin',
+            attribute:'id',
+            item:'otp'
+        });
+        if(!data){
+            return res.status(400).json({
+                success: false,
+                message: "User not found",
+                data: null
+            });
+        }
+        
+        if(data.otp !== code){
+            return res.status(400).json({
+                success: false,
+                message: "Invalid code",
+                data: null
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Code verified successfully",
+            data: null
+        });
+        
+    }catch(e){
+        res.status(500).json({
+            success: false,
+            message: e.message,
+            data: null
+        })
+    }
 }
 
 //========================================================//
