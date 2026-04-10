@@ -224,6 +224,7 @@ exports.getAllProducts = async (req, res) => {
           return product.image_url ? [product.image_url] : [];
         }
       })(),
+      attributes: product.attributes,
       created_at: product.created_at
     }));
 
