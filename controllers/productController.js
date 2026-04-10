@@ -138,6 +138,7 @@ exports.getAllProducts = async (req, res) => {
         COALESCE(p.attributes::text, '{}') AS attributes,
         p.location,
         p.type,
+        p.status,
         u.name AS seller_name,
         u.location AS seller_location
       FROM products p
