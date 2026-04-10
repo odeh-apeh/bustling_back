@@ -340,7 +340,8 @@ exports.updateProduct = async (req, res) => {
     const { title, description, price, category, location, status } = req.body;
     const sellerId = req.session.userId;
 
-    console.log('📦 Update Request:', { id, title, description, price, category, location, status });
+    console.log('📦 Update Request Body:', req.body);
+    console.log('📦 Update Params:', { id, sellerId });
 
     // Check if product exists and belongs to seller
     const result = await db.query(
@@ -365,15 +366,13 @@ exports.updateProduct = async (req, res) => {
         const imgPath = path.join(__dirname, "..", "uploads", img);
         if (fs.existsSync(imgPath)) {
           fs.unlinkSync(imgPath);
-          console.log('🗑️ Deleted old image:', img);
         }
       });
-      // Use new images
       images = req.files.map((file) => file.filename);
     }
 
-    // Handle category - check if it's an ID or name
-    let categoryId = null;
+    // Handle category
+    let categoryId = product.category_id;
     if (category) {
       // Check if category is a number (ID)
       if (!isNaN(parseInt(category))) {
@@ -390,73 +389,38 @@ exports.updateProduct = async (req, res) => {
       }
     }
 
-    // If no category found, use existing or default
-    if (!categoryId) {
-      categoryId = product.category_id || 1; // Default category ID
-    }
-
-    // Prepare update data
-    const updateData = {
-      name: title || product.name,
-      description: description || product.description,
-      price: price || product.price,
-      category_id: categoryId,
-      images: JSON.stringify(images),
-      location: location || product.location,
-      status: status || product.status,
-      updated_at: new Date()
-    };
-
-    // Build dynamic update query
-    const updateFields = [];
-    const updateValues = [];
-    let paramCounter = 1;
-
-    if (updateData.name) {
-      updateFields.push(`name = $${paramCounter++}`);
-      updateValues.push(updateData.name);
-    }
-    if (updateData.description !== undefined) {
-      updateFields.push(`description = $${paramCounter++}`);
-      updateValues.push(updateData.description);
-    }
-    if (updateData.price) {
-      updateFields.push(`price = $${paramCounter++}`);
-      updateValues.push(updateData.price);
-    }
-    if (updateData.category_id) {
-      updateFields.push(`category_id = $${paramCounter++}`);
-      updateValues.push(updateData.category_id);
-    }
-    if (updateData.images) {
-      updateFields.push(`images = $${paramCounter++}`);
-      updateValues.push(updateData.images);
-    }
-    if (updateData.location !== undefined) {
-      updateFields.push(`location = $${paramCounter++}`);
-      updateValues.push(updateData.location);
-    }
-    if (updateData.status) {
-      updateFields.push(`status = $${paramCounter++}`);
-      updateValues.push(updateData.status);
-    }
-    
-    updateFields.push(`updated_at = $${paramCounter++}`);
-    updateValues.push(updateData.updated_at);
-    updateValues.push(id);
-    updateValues.push(sellerId);
-
-    const query = `
+    // Build update query
+    const updateQuery = `
       UPDATE products 
-      SET ${updateFields.join(', ')} 
-      WHERE id = $${paramCounter++} AND seller_id = $${paramCounter}
+      SET 
+        name = COALESCE($1, name),
+        description = COALESCE($2, description),
+        price = COALESCE($3, price),
+        category_id = COALESCE($4, category_id),
+        images = COALESCE($5, images),
+        location = COALESCE($6, location),
+        status = COALESCE($7, status),
+        updated_at = NOW()
+      WHERE id = $8 AND seller_id = $9
       RETURNING *
     `;
 
-    console.log('📝 Update Query:', query);
+    const updateValues = [
+      title || product.name,
+      description || product.description,
+      price || product.price,
+      categoryId,
+      JSON.stringify(images),
+      location || product.location,
+      status || product.status,
+      id,
+      sellerId
+    ];
+
+    console.log('📝 Update Query:', updateQuery);
     console.log('📊 Update Values:', updateValues);
 
-    const updatedResult = await db.query(query, updateValues);
+    const updatedResult = await db.query(updateQuery, updateValues);
     
     if (updatedResult.rows.length === 0) {
       return res.status(404).json({
@@ -465,7 +429,8 @@ exports.updateProduct = async (req, res) => {
       });
     }
 
-    res.json({ 
+    // Return success response with proper JSON
+    return res.status(200).json({ 
       success: true,
       message: "Product updated successfully",
       product: updatedResult.rows[0]
@@ -473,7 +438,8 @@ exports.updateProduct = async (req, res) => {
 
   } catch (err) {
     console.error('❌ Error updating product:', err);
-    res.status(500).json({ 
+    // Always return valid JSON even on error
+    return res.status(500).json({ 
       success: false,
       message: "Error updating item",
       error: err.message 
