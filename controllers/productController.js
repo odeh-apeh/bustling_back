@@ -338,7 +338,7 @@ exports.getProductById = async (req, res) => {
 exports.updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, price, category, location, existing_images } = req.body;
+    const { title, description, price, category, location, existing_images, attributes } = req.body;
     const sellerId = req.session.userId;
 
     if(!title || !description || !price || !category || !location || !existing_images) {
@@ -430,6 +430,10 @@ exports.updateProduct = async (req, res) => {
     if (location !== undefined) {
       updateFields.push(`location = $${paramCounter++}`);
       updateValues.push(location);
+    }
+    if(attributes !== undefined){
+      updateFields.push(`attributes = $${paramCounter++}`);
+      updateFields.push(attributes);
     }
 
     // Always update updated_at
