@@ -11,5 +11,6 @@ router.delete('/delivery/company/:id', authMiddleware, deliveryCompanyController
 router.delete('/delivery/company/:id/soft', authMiddleware, deliveryCompanyController.softDeleteDeliveryCompany);
 router.delete('/delivery/company/:id/hard', authMiddleware, deliveryCompanyController.hardDeleteDeliveryCompany);
 router.get('/delivery/company/:id', authMiddleware, deliveryCompanyController.getDeliveryCompanyById);
+router.post('/delivery/company/update-status/:id', authMiddleware, deliveryCompanyController.updateDeliveryCompanyStatus);
 
 module.exports = router;

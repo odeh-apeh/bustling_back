@@ -456,3 +456,75 @@ exports.getDeliveryCompanyById = async (req, res) => {
     });
   }
 };
+
+exports.updateDeliveryCompanyStatus = async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const { id } = req.params;
+    const { status } = req.body;
+
+    console.log('🚦 Update Delivery Company Status Request:',   
+      { companyId: id, userId, status }
+    );
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated"
+      });
+    }
+
+    // Validate status value
+    const validStatuses = ['active', 'inactive', 'deleted'];
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status. Valid values are: ${validStatuses.join(', ')}`
+      });
+    }
+
+    // Check if delivery company exists and belongs to this user
+    const existingCompany = await db.query(
+      "SELECT * FROM delivery_companies WHERE id = $1 AND user_id = $2",
+      [id, userId]
+    );
+
+    if (existingCompany.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Delivery company not found or you don't have permission to update it"
+      });
+    }
+
+    // Update status
+    const result = await db.query(
+      `UPDATE delivery_companies 
+       SET status = $1, updated_at = NOW() 
+       WHERE id = $2 AND user_id = $3 
+       RETURNING *`,
+      [status, id, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Failed to update delivery company status"
+      });
+    }
+
+    console.log('✅ Delivery company status updated for ID:', id);
+
+    return res.status(200).json({
+      success: true,
+      message: "Delivery company status updated successfully",
+      company: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating delivery company status:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Server error during status update"
+    });
+  }
+};
