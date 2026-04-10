@@ -12,7 +12,7 @@ router.get('/profile', authMiddleware, async (req, res) => {
 
     // Get user data
     const { rows: userRows } = await db.query(
-      "SELECT id, name, phone, email, type, location FROM users WHERE id = $1",
+      "SELECT id, name, phone, email, type, location, created_at FROM users WHERE id = $1",
       [userId]
     );
 
