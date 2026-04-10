@@ -94,3 +94,365 @@ exports.registerDeliveryCompany = async (req, res) => {
     client.release();
   }
 };
+
+
+// Update delivery company by company ID
+exports.updateDeliveryCompany = async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const { id } = req.params; // Get delivery company ID from params
+    const { 
+      companyName, 
+      fullName, 
+      description, 
+      phoneNumber, 
+      state, 
+      localGovernment, 
+      coverageArea, 
+      vehicleType, 
+      deliveryTypes 
+    } = req.body;
+
+    console.log('📦 Update Delivery Request:', {
+      companyId: id,
+      userId,
+      companyName,
+      phoneNumber,
+      state,
+      localGovernment,
+      coverageArea,
+      vehicleType,
+      deliveryTypes
+    });
+
+    // Check authentication
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated"
+      });
+    }
+
+    // Validate required fields
+    if (!companyName || !phoneNumber || !state || !localGovernment || !coverageArea || !vehicleType || !deliveryTypes) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide all required fields",
+        missing: {
+          companyName: !companyName,
+          phoneNumber: !phoneNumber,
+          state: !state,
+          localGovernment: !localGovernment,
+          coverageArea: !coverageArea,
+          vehicleType: !vehicleType,
+          deliveryTypes: !deliveryTypes
+        }
+      });
+    }
+
+    // Check if delivery company exists and belongs to this user
+    const existingCompany = await database.query(
+      "SELECT * FROM delivery_companies WHERE id = $1 AND user_id = $2",
+      [id, userId]
+    );
+
+    if (existingCompany.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Delivery company not found or you don't have permission to update it"
+      });
+    }
+
+    // Update existing record
+    const result = await database.query(
+      `UPDATE delivery_companies 
+       SET 
+         company_name = $1,
+         full_name = $2,
+         description = $3,
+         phone_number = $4,
+         state = $5,
+         local_government = $6,
+         coverage_area = $7,
+         vehicle_type = $8,
+         delivery_types = $9,
+         updated_at = NOW()
+       WHERE id = $10 AND user_id = $11
+       RETURNING *`,
+      [
+        companyName,
+        fullName || null,
+        description || null,
+        phoneNumber,
+        state,
+        localGovernment,
+        coverageArea,
+        vehicleType,
+        JSON.stringify(deliveryTypes),
+        id,
+        userId
+      ]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Failed to update delivery company"
+      });
+    }
+    
+    console.log('✅ Delivery company updated successfully for ID:', id);
+    
+    return res.status(200).json({
+      success: true,
+      message: "Delivery company updated successfully",
+      company: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating delivery company:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Server error during update"
+    });
+  }
+};
+
+// Delete delivery company by ID
+exports.deleteDeliveryCompany = async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const { id } = req.params;
+
+    console.log('🗑️ Delete Delivery Request for company ID:', id);
+
+    // Check authentication
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated"
+      });
+    }
+
+    // Check if delivery company exists and belongs to this user
+    const existingCompany = await database.query(
+      "SELECT * FROM delivery_companies WHERE id = $1 AND user_id = $2",
+      [id, userId]
+    );
+
+    if (existingCompany.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Delivery company not found or you don't have permission to delete it"
+      });
+    }
+
+    // Delete the delivery company
+    const result = await database.query(
+      "DELETE FROM delivery_companies WHERE id = $1 AND user_id = $2 RETURNING *",
+      [id, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Failed to delete delivery company"
+      });
+    }
+
+    console.log('✅ Delivery company deleted successfully for ID:', id);
+
+    return res.status(200).json({
+      success: true,
+      message: "Delivery company deleted successfully",
+      deletedCompany: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('❌ Error deleting delivery company:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Server error during deletion"
+    });
+  }
+};
+
+// Soft delete (deactivate) by company ID
+exports.softDeleteDeliveryCompany = async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const { id } = req.params;
+
+    console.log('🗑️ Soft Delete Request for company ID:', id);
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated"
+      });
+    }
+
+    // Check if delivery company exists and belongs to this user
+    const existingCompany = await database.query(
+      "SELECT * FROM delivery_companies WHERE id = $1 AND user_id = $2",
+      [id, userId]
+    );
+
+    if (existingCompany.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Delivery company not found or you don't have permission to modify it"
+      });
+    }
+
+    // Soft delete - set status to 'deleted' instead of removing from database
+    const result = await database.query(
+      `UPDATE delivery_companies 
+       SET status = 'deleted', deleted_at = NOW(), updated_at = NOW() 
+       WHERE id = $1 AND user_id = $2 
+       RETURNING *`,
+      [id, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Failed to delete delivery company"
+      });
+    }
+
+    console.log('✅ Delivery company soft deleted for ID:', id);
+
+    return res.status(200).json({
+      success: true,
+      message: "Delivery company deactivated successfully",
+      company: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('❌ Error soft deleting delivery company:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Server error during deletion"
+    });
+  }
+};
+
+// Permanent delete (hard delete) by company ID
+exports.hardDeleteDeliveryCompany = async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const { id } = req.params;
+    const { confirm } = req.body;
+
+    console.log('🗑️ Hard Delete Request for company ID:', id);
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated"
+      });
+    }
+
+    // Require confirmation for hard delete
+    if (!confirm || confirm !== 'CONFIRM_DELETE') {
+      return res.status(400).json({
+        success: false,
+        message: "Please confirm deletion by providing confirm: 'CONFIRM_DELETE'"
+      });
+    }
+
+    // Check if delivery company exists and belongs to this user
+    const existingCompany = await database.query(
+      "SELECT * FROM delivery_companies WHERE id = $1 AND user_id = $2",
+      [id, userId]
+    );
+
+    if (existingCompany.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Delivery company not found or you don't have permission to delete it"
+      });
+    }
+
+    // Permanent delete from database
+    const result = await database.query(
+      "DELETE FROM delivery_companies WHERE id = $1 AND user_id = $2 RETURNING *",
+      [id, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Failed to delete delivery company"
+      });
+    }
+
+    console.log('✅ Delivery company permanently deleted for ID:', id);
+
+    return res.status(200).json({
+      success: true,
+      message: "Delivery company permanently deleted successfully",
+      deletedCompany: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('❌ Error hard deleting delivery company:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Server error during deletion"
+    });
+  }
+};
+
+// Get delivery company by ID
+exports.getDeliveryCompanyById = async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const { id } = req.params;
+
+    console.log('📖 Get Delivery Company Request for ID:', id);
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated"
+      });
+    }
+
+    const result = await database.query(
+      "SELECT * FROM delivery_companies WHERE id = $1 AND user_id = $2",
+      [id, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Delivery company not found"
+      });
+    }
+
+    const company = result.rows[0];
+    
+    // Parse delivery_types if it's a string
+    if (company.delivery_types && typeof company.delivery_types === 'string') {
+      try {
+        company.delivery_types = JSON.parse(company.delivery_types);
+      } catch (e) {
+        company.delivery_types = [];
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      company: company
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching delivery company:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Server error during fetch"
+    });
+  }
+};

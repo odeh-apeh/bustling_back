@@ -1,5 +1,6 @@
 const db = require("../config/db");
 const { notifyUser, calculateDistance } = require("../utils/helpers");
+const database = require("../database/database-handler");
 
 // ✅ Get ALL registered delivery companies (removed location-based filtering and pricing)
 exports.getAvailableDeliveryCompanies = async (req, res) => {
@@ -354,3 +355,4 @@ exports.confirmDelivery = async (req, res) => {
     client.release();
   }
 };
+
