@@ -30,5 +30,7 @@ router.put("/:id", authMiddleware, upload.array("images", 4), productController.
 // ✅ Delete product
 router.delete("/:id", authMiddleware, productController.deleteProduct);
 router.get("/seller/:seller_id/phone", productController.getSellerPhone);
+// In your routes file
+router.patch('/api/products/:id/status', authMiddleware, productController.toggleProductStatus);
 
 module.exports = router;

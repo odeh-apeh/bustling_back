@@ -337,52 +337,147 @@ exports.getProductById = async (req, res) => {
 exports.updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, price, category, type, attributes } = req.body;
+    const { title, description, price, category, location, status } = req.body;
     const sellerId = req.session.userId;
 
-    const result = await db.query("SELECT * FROM products WHERE id=$1 AND seller_id=$2", [id, sellerId]);
+    console.log('📦 Update Request:', { id, title, description, price, category, location, status });
+
+    // Check if product exists and belongs to seller
+    const result = await db.query(
+      "SELECT * FROM products WHERE id=$1 AND seller_id=$2", 
+      [id, sellerId]
+    );
+    
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Item not found or not yours" });
+      return res.status(404).json({ 
+        success: false,
+        message: "Item not found or not yours" 
+      });
     }
 
     const product = result.rows[0];
     let images = product.images ? JSON.parse(product.images) : [];
 
+    // Handle new image uploads if any
     if (req.files && req.files.length > 0) {
+      // Delete old images from server
       images.forEach((img) => {
-        const imgPath = path.join("uploads", img);
-        if (fs.existsSync(imgPath)) fs.unlinkSync(imgPath);
+        const imgPath = path.join(__dirname, "..", "uploads", img);
+        if (fs.existsSync(imgPath)) {
+          fs.unlinkSync(imgPath);
+          console.log('🗑️ Deleted old image:', img);
+        }
       });
+      // Use new images
       images = req.files.map((file) => file.filename);
     }
 
-    const finalCategory = category && category.trim() !== "" ? category : "Others";
-    const itemType = type && ["product", "service"].includes(type.toLowerCase())
-      ? type.toLowerCase()
-      : product.type || "product";
-
-    // Parse attributes if provided
-    let attributesData = product.attributes ? JSON.parse(product.attributes) : {};
-    if (attributes) {
-      try {
-        attributesData = typeof attributes === 'string' 
-          ? JSON.parse(attributes) 
-          : attributes;
-      } catch (error) {
-        console.error('Error parsing attributes:', error);
-        // Keep existing attributes if new ones are invalid
+    // Handle category - check if it's an ID or name
+    let categoryId = null;
+    if (category) {
+      // Check if category is a number (ID)
+      if (!isNaN(parseInt(category))) {
+        categoryId = parseInt(category);
+      } else {
+        // Try to find category by name
+        const categoryResult = await db.query(
+          "SELECT id FROM categories WHERE name ILIKE $1 LIMIT 1",
+          [category]
+        );
+        if (categoryResult.rows.length > 0) {
+          categoryId = categoryResult.rows[0].id;
+        }
       }
     }
 
-    await db.query(
-      "UPDATE products SET name=$1, description=$2, price=$3, category_id=$4, images=$5, type=$6, attributes=$7 WHERE id=$8 AND seller_id=$9",
-      [title, description, price, finalCategory, JSON.stringify(images), itemType, JSON.stringify(attributesData), id, sellerId]
-    );
+    // If no category found, use existing or default
+    if (!categoryId) {
+      categoryId = product.category_id || 1; // Default category ID
+    }
 
-    res.json({ message: `${itemType === "service" ? "Service" : "Product"} updated successfully` });
+    // Prepare update data
+    const updateData = {
+      name: title || product.name,
+      description: description || product.description,
+      price: price || product.price,
+      category_id: categoryId,
+      images: JSON.stringify(images),
+      location: location || product.location,
+      status: status || product.status,
+      updated_at: new Date()
+    };
+
+    // Build dynamic update query
+    const updateFields = [];
+    const updateValues = [];
+    let paramCounter = 1;
+
+    if (updateData.name) {
+      updateFields.push(`name = $${paramCounter++}`);
+      updateValues.push(updateData.name);
+    }
+    if (updateData.description !== undefined) {
+      updateFields.push(`description = $${paramCounter++}`);
+      updateValues.push(updateData.description);
+    }
+    if (updateData.price) {
+      updateFields.push(`price = $${paramCounter++}`);
+      updateValues.push(updateData.price);
+    }
+    if (updateData.category_id) {
+      updateFields.push(`category_id = $${paramCounter++}`);
+      updateValues.push(updateData.category_id);
+    }
+    if (updateData.images) {
+      updateFields.push(`images = $${paramCounter++}`);
+      updateValues.push(updateData.images);
+    }
+    if (updateData.location !== undefined) {
+      updateFields.push(`location = $${paramCounter++}`);
+      updateValues.push(updateData.location);
+    }
+    if (updateData.status) {
+      updateFields.push(`status = $${paramCounter++}`);
+      updateValues.push(updateData.status);
+    }
+    
+    updateFields.push(`updated_at = $${paramCounter++}`);
+    updateValues.push(updateData.updated_at);
+    updateValues.push(id);
+    updateValues.push(sellerId);
+
+    const query = `
+      UPDATE products 
+      SET ${updateFields.join(', ')} 
+      WHERE id = $${paramCounter++} AND seller_id = $${paramCounter}
+      RETURNING *
+    `;
+
+    console.log('📝 Update Query:', query);
+    console.log('📊 Update Values:', updateValues);
+
+    const updatedResult = await db.query(query, updateValues);
+    
+    if (updatedResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Failed to update product"
+      });
+    }
+
+    res.json({ 
+      success: true,
+      message: "Product updated successfully",
+      product: updatedResult.rows[0]
+    });
+
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error updating item" });
+    console.error('❌ Error updating product:', err);
+    res.status(500).json({ 
+      success: false,
+      message: "Error updating item",
+      error: err.message 
+    });
   }
 };
 
@@ -392,25 +487,101 @@ exports.deleteProduct = async (req, res) => {
     const { id } = req.params;
     const sellerId = req.session.userId;
 
-    const result = await db.query("SELECT * FROM products WHERE id=$1 AND seller_id=$2", [id, sellerId]);
+    console.log('🗑️ Delete Request:', { id, sellerId });
+
+    // Check if product exists and belongs to seller
+    const result = await db.query(
+      "SELECT * FROM products WHERE id=$1 AND seller_id=$2", 
+      [id, sellerId]
+    );
+    
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Item not found or not yours" });
+      return res.status(404).json({ 
+        success: false,
+        message: "Item not found or not yours" 
+      });
     }
 
     const product = result.rows[0];
     const images = product.images ? JSON.parse(product.images) : [];
 
-    images.forEach((img) => {
-      const imgPath = path.join("uploads", img);
-      if (fs.existsSync(imgPath)) fs.unlinkSync(imgPath);
+    // Delete image files from server
+    if (images && images.length > 0) {
+      images.forEach((img) => {
+        const imgPath = path.join(__dirname, "..", "uploads", img);
+        if (fs.existsSync(imgPath)) {
+          fs.unlinkSync(imgPath);
+          console.log('🗑️ Deleted image file:', img);
+        } else {
+          console.log('⚠️ Image file not found:', img);
+        }
+      });
+    }
+
+    // Delete from database
+    await db.query(
+      "DELETE FROM products WHERE id=$1 AND seller_id=$2", 
+      [id, sellerId]
+    );
+
+    console.log('✅ Product deleted successfully:', id);
+
+    res.json({ 
+      success: true,
+      message: "Item deleted successfully" 
     });
 
-    await db.query("DELETE FROM products WHERE id=$1 AND seller_id=$2", [id, sellerId]);
-
-    res.json({ message: "Item deleted successfully" });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error deleting item" });
+    console.error('❌ Error deleting product:', err);
+    res.status(500).json({ 
+      success: false,
+      message: "Error deleting item",
+      error: err.message 
+    });
+  }
+};
+
+exports.toggleProductStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    const sellerId = req.session.userId;
+
+    console.log('🔄 Toggle Status Request:', { id, status, sellerId });
+
+    // Check if product exists and belongs to seller
+    const result = await db.query(
+      "SELECT * FROM products WHERE id=$1 AND seller_id=$2", 
+      [id, sellerId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        message: "Item not found or not yours" 
+      });
+    }
+
+    // Update status
+    await db.query(
+      "UPDATE products SET status = $1, updated_at = NOW() WHERE id = $2 AND seller_id = $3",
+      [status, id, sellerId]
+    );
+
+    console.log('✅ Status updated successfully:', { id, status });
+
+    res.json({ 
+      success: true,
+      message: `Product ${status === 'active' ? 'activated' : 'deactivated'} successfully` 
+    });
+
+  } catch (err) {
+    console.error('❌ Error toggling status:', err);
+    res.status(500).json({ 
+      success: false,
+      message: "Error updating product status",
+      error: err.message 
+    });
   }
 };
 
