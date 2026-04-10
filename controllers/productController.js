@@ -225,7 +225,8 @@ exports.getAllProducts = async (req, res) => {
         }
       })(),
       attributes: product.attributes,
-      created_at: product.created_at
+      created_at: product.created_at,
+      status: product.status
     }));
 
     res.json({
@@ -326,7 +327,8 @@ exports.getProductById = async (req, res) => {
         name: item.category_name,
         type: item.category_type,
         attributes: categoryAttributes // Category definition attributes
-      }
+      },
+      status: item.status
     });
   } catch (err) {
     console.error(err);
