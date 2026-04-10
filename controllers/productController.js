@@ -340,7 +340,7 @@ exports.updateProduct = async (req, res) => {
     const { title, description, price, category, location, existing_images } = req.body;
     const sellerId = req.session.userId;
 
-    if(!title || !description || !price || !category || !location | !existing_images) {
+    if(!title || !description || !price || !category || !location || !existing_images) {
      return res.status(500).json({
         message: 'All fields are required'
       })
