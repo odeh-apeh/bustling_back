@@ -16,13 +16,14 @@ exports.getAvailableDeliveryCompanies = async (req, res) => {
 
     console.log('🔍 Fetching all registered delivery companies');
 
-    // Get all active delivery companies
+    // Get all delivery companies
     const result = await db.query(
       `SELECT id, user_id, company_name, coverage_area, state, local_government, phone_number,
               vehicle_type, description, status, created_at
        FROM delivery_companies 
-       WHERE status = 'active'
-       ORDER BY created_at DESC`
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [userId]
     );
 
     const companies = result.rows;
