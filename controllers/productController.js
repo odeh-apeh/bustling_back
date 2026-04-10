@@ -337,11 +337,11 @@ exports.getProductById = async (req, res) => {
 exports.updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, price, category, location, status } = req.body;
+    const { title, description, price, category, location, existing_images } = req.body;
     const sellerId = req.session.userId;
 
     console.log('📦 Update Request Body:', req.body);
-    console.log('📦 Update Params:', { id, sellerId });
+    console.log('📦 Files:', req.files);
 
     // Check if product exists and belongs to seller
     const result = await db.query(
@@ -357,28 +357,34 @@ exports.updateProduct = async (req, res) => {
     }
 
     const product = result.rows[0];
-    let images = product.images ? JSON.parse(product.images) : [];
-
-    // Handle new image uploads if any
+    
+    // Handle images
+    let images = [];
+    
+    // Parse existing images from request
+    if (existing_images) {
+      try {
+        images = JSON.parse(existing_images);
+      } catch (e) {
+        images = [];
+      }
+    } else {
+      // If no existing_images provided, keep current images
+      images = product.images ? JSON.parse(product.images) : [];
+    }
+    
+    // Handle new image uploads
     if (req.files && req.files.length > 0) {
-      // Delete old images from server
-      images.forEach((img) => {
-        const imgPath = path.join(__dirname, "..", "uploads", img);
-        if (fs.existsSync(imgPath)) {
-          fs.unlinkSync(imgPath);
-        }
-      });
-      images = req.files.map((file) => file.filename);
+      const newImages = req.files.map((file) => file.filename);
+      images = [...images, ...newImages];
     }
 
     // Handle category
     let categoryId = product.category_id;
     if (category) {
-      // Check if category is a number (ID)
       if (!isNaN(parseInt(category))) {
         categoryId = parseInt(category);
       } else {
-        // Try to find category by name
         const categoryResult = await db.query(
           "SELECT id FROM categories WHERE name ILIKE $1 LIMIT 1",
           [category]
@@ -389,33 +395,49 @@ exports.updateProduct = async (req, res) => {
       }
     }
 
-    // Build update query
+    // Build update query (without status column)
+    const updateFields = [];
+    const updateValues = [];
+    let paramCounter = 1;
+
+    if (title !== undefined) {
+      updateFields.push(`name = $${paramCounter++}`);
+      updateValues.push(title);
+    }
+    if (description !== undefined) {
+      updateFields.push(`description = $${paramCounter++}`);
+      updateValues.push(description);
+    }
+    if (price !== undefined) {
+      updateFields.push(`price = $${paramCounter++}`);
+      updateValues.push(price);
+    }
+    if (categoryId !== undefined) {
+      updateFields.push(`category_id = $${paramCounter++}`);
+      updateValues.push(categoryId);
+    }
+    if (images !== undefined) {
+      updateFields.push(`images = $${paramCounter++}`);
+      updateValues.push(JSON.stringify(images));
+    }
+    if (location !== undefined) {
+      updateFields.push(`location = $${paramCounter++}`);
+      updateValues.push(location);
+    }
+
+    // Always update updated_at
+    updateFields.push(`updated_at = NOW()`);
+
+    // Add WHERE clause values
+    updateValues.push(id);
+    updateValues.push(sellerId);
+
     const updateQuery = `
       UPDATE products 
-      SET 
-        name = COALESCE($1, name),
-        description = COALESCE($2, description),
-        price = COALESCE($3, price),
-        category_id = COALESCE($4, category_id),
-        images = COALESCE($5, images),
-        location = COALESCE($6, location),
-        status = COALESCE($7, status),
-        updated_at = NOW()
-      WHERE id = $8 AND seller_id = $9
+      SET ${updateFields.join(', ')} 
+      WHERE id = $${paramCounter++} AND seller_id = $${paramCounter}
       RETURNING *
     `;
-
-    const updateValues = [
-      title || product.name,
-      description || product.description,
-      price || product.price,
-      categoryId,
-      JSON.stringify(images),
-      location || product.location,
-      status || product.status,
-      id,
-      sellerId
-    ];
 
     console.log('📝 Update Query:', updateQuery);
     console.log('📊 Update Values:', updateValues);
@@ -429,7 +451,7 @@ exports.updateProduct = async (req, res) => {
       });
     }
 
-    // Return success response with proper JSON
+    // Return success response
     return res.status(200).json({ 
       success: true,
       message: "Product updated successfully",
@@ -438,10 +460,128 @@ exports.updateProduct = async (req, res) => {
 
   } catch (err) {
     console.error('❌ Error updating product:', err);
-    // Always return valid JSON even on error
     return res.status(500).json({ 
       success: false,
       message: "Error updating item",
+      error: err.message 
+    });
+  }
+};
+
+// Delete product controller (fixed)
+exports.deleteProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const sellerId = req.session.userId;
+
+    console.log('🗑️ Delete Request:', { id, sellerId });
+
+    // Check if product exists and belongs to seller
+    const result = await db.query(
+      "SELECT * FROM products WHERE id=$1 AND seller_id=$2", 
+      [id, sellerId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        message: "Item not found or not yours" 
+      });
+    }
+
+    const product = result.rows[0];
+    
+    // Parse and delete image files
+    if (product.images) {
+      try {
+        const images = JSON.parse(product.images);
+        if (images && images.length > 0) {
+          images.forEach((img) => {
+            const imgPath = path.join(__dirname, "..", "uploads", img);
+            if (fs.existsSync(imgPath)) {
+              fs.unlinkSync(imgPath);
+              console.log('🗑️ Deleted image file:', img);
+            }
+          });
+        }
+      } catch (e) {
+        console.error('Error parsing images for deletion:', e);
+      }
+    }
+
+    // Delete from database
+    await db.query(
+      "DELETE FROM products WHERE id=$1 AND seller_id=$2", 
+      [id, sellerId]
+    );
+
+    console.log('✅ Product deleted successfully:', id);
+
+    res.json({ 
+      success: true,
+      message: "Item deleted successfully" 
+    });
+
+  } catch (err) {
+    console.error('❌ Error deleting product:', err);
+    res.status(500).json({ 
+      success: false,
+      message: "Error deleting item",
+      error: err.message 
+    });
+  }
+};
+
+// Optional: Add status toggle if you add status column later
+exports.toggleProductStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    const sellerId = req.session.userId;
+
+    // First check if status column exists
+    const checkColumn = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name='products' AND column_name='status'
+    `);
+
+    if (checkColumn.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Status column not found in products table. Please run migration: ALTER TABLE products ADD COLUMN status VARCHAR(20) DEFAULT 'active'"
+      });
+    }
+
+    // Check if product exists
+    const result = await db.query(
+      "SELECT * FROM products WHERE id=$1 AND seller_id=$2", 
+      [id, sellerId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        message: "Item not found or not yours" 
+      });
+    }
+
+    // Update status
+    await db.query(
+      "UPDATE products SET status = $1, updated_at = NOW() WHERE id = $2 AND seller_id = $3",
+      [status, id, sellerId]
+    );
+
+    return res.status(200).json({ 
+      success: true,
+      message: `Product ${status === 'active' ? 'activated' : 'deactivated'} successfully`
+    });
+
+  } catch (err) {
+    console.error('❌ Error toggling status:', err);
+    return res.status(500).json({ 
+      success: false,
+      message: "Error updating product status",
       error: err.message 
     });
   }
@@ -531,110 +671,6 @@ exports.updateProductJson = async (req, res) => {
   }
 };
 
-
-// ✅ Delete Product/Service
-exports.deleteProduct = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const sellerId = req.session.userId;
-
-    console.log('🗑️ Delete Request:', { id, sellerId });
-
-    // Check if product exists and belongs to seller
-    const result = await db.query(
-      "SELECT * FROM products WHERE id=$1 AND seller_id=$2", 
-      [id, sellerId]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ 
-        success: false,
-        message: "Item not found or not yours" 
-      });
-    }
-
-    const product = result.rows[0];
-    const images = product.images ? JSON.parse(product.images) : [];
-
-    // Delete image files from server
-    if (images && images.length > 0) {
-      images.forEach((img) => {
-        const imgPath = path.join(__dirname, "..", "uploads", img);
-        if (fs.existsSync(imgPath)) {
-          fs.unlinkSync(imgPath);
-          console.log('🗑️ Deleted image file:', img);
-        } else {
-          console.log('⚠️ Image file not found:', img);
-        }
-      });
-    }
-
-    // Delete from database
-    await db.query(
-      "DELETE FROM products WHERE id=$1 AND seller_id=$2", 
-      [id, sellerId]
-    );
-
-    console.log('✅ Product deleted successfully:', id);
-
-    res.json({ 
-      success: true,
-      message: "Item deleted successfully" 
-    });
-
-  } catch (err) {
-    console.error('❌ Error deleting product:', err);
-    res.status(500).json({ 
-      success: false,
-      message: "Error deleting item",
-      error: err.message 
-    });
-  }
-};
-
-exports.toggleProductStatus = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-    const sellerId = req.session.userId;
-
-    console.log('🔄 Toggle Status Request:', { id, status, sellerId });
-
-    // Check if product exists and belongs to seller
-    const result = await db.query(
-      "SELECT * FROM products WHERE id=$1 AND seller_id=$2", 
-      [id, sellerId]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ 
-        success: false,
-        message: "Item not found or not yours" 
-      });
-    }
-
-    // Update status
-    await db.query(
-      "UPDATE products SET status = $1, updated_at = NOW() WHERE id = $2 AND seller_id = $3",
-      [status, id, sellerId]
-    );
-
-    console.log('✅ Status updated successfully:', { id, status });
-
-    res.json({ 
-      success: true,
-      message: `Product ${status === 'active' ? 'activated' : 'deactivated'} successfully` 
-    });
-
-  } catch (err) {
-    console.error('❌ Error toggling status:', err);
-    res.status(500).json({ 
-      success: false,
-      message: "Error updating product status",
-      error: err.message 
-    });
-  }
-};
 
 // ✅ Get Seller's Products (Fixed)
 exports.getMyProducts = async (req, res) => {
