@@ -151,7 +151,7 @@ exports.updateDeliveryCompany = async (req, res) => {
     }
 
     // Check if delivery company exists and belongs to this user
-    const existingCompany = await database.query(
+    const existingCompany = await db.query(
       "SELECT * FROM delivery_companies WHERE id = $1 AND user_id = $2",
       [id, userId]
     );
@@ -164,7 +164,7 @@ exports.updateDeliveryCompany = async (req, res) => {
     }
 
     // Update existing record
-    const result = await database.query(
+    const result = await db.query(
       `UPDATE delivery_companies 
        SET 
          company_name = $1,
@@ -235,7 +235,7 @@ exports.deleteDeliveryCompany = async (req, res) => {
     }
 
     // Check if delivery company exists and belongs to this user
-    const existingCompany = await database.query(
+    const existingCompany = await db.query(
       "SELECT * FROM delivery_companies WHERE id = $1 AND user_id = $2",
       [id, userId]
     );
@@ -248,7 +248,7 @@ exports.deleteDeliveryCompany = async (req, res) => {
     }
 
     // Delete the delivery company
-    const result = await database.query(
+    const result = await db.query(
       "DELETE FROM delivery_companies WHERE id = $1 AND user_id = $2 RETURNING *",
       [id, userId]
     );
@@ -293,7 +293,7 @@ exports.softDeleteDeliveryCompany = async (req, res) => {
     }
 
     // Check if delivery company exists and belongs to this user
-    const existingCompany = await database.query(
+    const existingCompany = await db.query(
       "SELECT * FROM delivery_companies WHERE id = $1 AND user_id = $2",
       [id, userId]
     );
@@ -305,8 +305,8 @@ exports.softDeleteDeliveryCompany = async (req, res) => {
       });
     }
 
-    // Soft delete - set status to 'deleted' instead of removing from database
-    const result = await database.query(
+    // Soft delete - set status to 'deleted' instead of removing from db
+    const result = await db.query(
       `UPDATE delivery_companies 
        SET status = 'deleted', deleted_at = NOW(), updated_at = NOW() 
        WHERE id = $1 AND user_id = $2 
@@ -363,7 +363,7 @@ exports.hardDeleteDeliveryCompany = async (req, res) => {
     }
 
     // Check if delivery company exists and belongs to this user
-    const existingCompany = await database.query(
+    const existingCompany = await db.query(
       "SELECT * FROM delivery_companies WHERE id = $1 AND user_id = $2",
       [id, userId]
     );
@@ -375,8 +375,8 @@ exports.hardDeleteDeliveryCompany = async (req, res) => {
       });
     }
 
-    // Permanent delete from database
-    const result = await database.query(
+    // Permanent delete from db
+    const result = await db.query(
       "DELETE FROM delivery_companies WHERE id = $1 AND user_id = $2 RETURNING *",
       [id, userId]
     );
@@ -420,7 +420,7 @@ exports.getDeliveryCompanyById = async (req, res) => {
       });
     }
 
-    const result = await database.query(
+    const result = await db.query(
       "SELECT * FROM delivery_companies WHERE id = $1 AND user_id = $2",
       [id, userId]
     );
