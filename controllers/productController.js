@@ -447,6 +447,91 @@ exports.updateProduct = async (req, res) => {
   }
 };
 
+// Controller for JSON-only updates
+exports.updateProductJson = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, description, price, category, location, status } = req.body;
+    const sellerId = req.session.userId;
+
+    console.log('📦 JSON Update Request:', req.body);
+
+    // Check if product exists
+    const result = await db.query(
+      "SELECT * FROM products WHERE id=$1 AND seller_id=$2", 
+      [id, sellerId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        message: "Item not found or not yours" 
+      });
+    }
+
+    const product = result.rows[0];
+
+    // Handle category
+    let categoryId = product.category_id;
+    if (category) {
+      if (!isNaN(parseInt(category))) {
+        categoryId = parseInt(category);
+      } else {
+        const categoryResult = await db.query(
+          "SELECT id FROM categories WHERE name ILIKE $1 LIMIT 1",
+          [category]
+        );
+        if (categoryResult.rows.length > 0) {
+          categoryId = categoryResult.rows[0].id;
+        }
+      }
+    }
+
+    // Update without touching images
+    const updateQuery = `
+      UPDATE products 
+      SET 
+        name = COALESCE($1, name),
+        description = COALESCE($2, description),
+        price = COALESCE($3, price),
+        category_id = COALESCE($4, category_id),
+        location = COALESCE($5, location),
+        status = COALESCE($6, status),
+        updated_at = NOW()
+      WHERE id = $7 AND seller_id = $8
+      RETURNING *
+    `;
+
+    const updateValues = [
+      title,
+      description,
+      price,
+      categoryId,
+      location,
+      status,
+      id,
+      sellerId
+    ];
+
+    const updatedResult = await db.query(updateQuery, updateValues);
+    
+    return res.status(200).json({ 
+      success: true,
+      message: "Product updated successfully",
+      product: updatedResult.rows[0]
+    });
+
+  } catch (err) {
+    console.error('❌ Error updating product:', err);
+    return res.status(500).json({ 
+      success: false,
+      message: "Error updating item",
+      error: err.message 
+    });
+  }
+};
+
+
 // ✅ Delete Product/Service
 exports.deleteProduct = async (req, res) => {
   try {

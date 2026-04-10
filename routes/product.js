@@ -32,5 +32,8 @@ router.delete("/:id", authMiddleware, productController.deleteProduct);
 router.get("/seller/:seller_id/phone", productController.getSellerPhone);
 // In your routes file
 router.patch('/api/products/:id/status', authMiddleware, productController.toggleProductStatus);
+// In your routes file - add a JSON-only update route
+router.put("/:id/json", authMiddleware, productController.updateProductJson);
+
 
 module.exports = router;
