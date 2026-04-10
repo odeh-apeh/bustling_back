@@ -730,7 +730,8 @@ exports.getMyProducts = async (req, res) => {
         p.location,
         p.type,
         p.category_id,
-        p.created_at
+        p.created_at,
+        p.status,
        FROM products p 
        WHERE p.seller_id = $1 
        ORDER BY p.created_at DESC`,
@@ -794,7 +795,8 @@ exports.getMyProducts = async (req, res) => {
         description: p.description,
         location: p.location,
         type: p.type,
-        category: p.category_id
+        category: p.category_id,
+        status: p.status
       };
     });
 
