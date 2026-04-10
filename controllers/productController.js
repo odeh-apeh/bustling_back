@@ -720,23 +720,23 @@ exports.getMyProducts = async (req, res) => {
     
     // Use ONLY columns that exist in your database
     const result = await db.query(
-      `SELECT 
-        p.id,
-        p.seller_id,
-        p.name AS title,
-        p.description,
-        p.price,
-        p.images,
-        p.location,
-        p.type,
-        p.category_id,
-        p.created_at,
-        p.status,
-       FROM products p 
-       WHERE p.seller_id = $1 
-       ORDER BY p.created_at DESC`,
-      [sellerId]
-    );
+  `SELECT 
+    p.id,
+    p.seller_id,
+    p.name AS title,
+    p.description,
+    p.price,
+    p.images,
+    p.location,
+    p.type,
+    p.category_id,
+    p.created_at,
+    p.status
+   FROM products p 
+   WHERE p.seller_id = $1 
+   ORDER BY p.created_at DESC`,
+  [sellerId]
+);
 
     const products = result.rows;
 
