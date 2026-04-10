@@ -426,7 +426,7 @@ exports.updateProduct = async (req, res) => {
     }
 
     // Always update updated_at
-    updateFields.push(`updated_at = NOW()`);
+    updateFields.push(`created_at = NOW()`);
 
     // Add WHERE clause values
     updateValues.push(id);
