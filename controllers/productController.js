@@ -338,17 +338,19 @@ exports.getProductById = async (req, res) => {
 exports.updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, price, category, location, existing_images, attributes } = req.body;
+    const { title, description, price, category, location, existing_images, attributes, status } = req.body;
     const sellerId = req.session.userId;
-
-    if(!title || !description || !price || !category || !location || !existing_images) {
-     return res.status(500).json({
-        message: 'All fields are required'
-      })
-    }
 
     console.log('📦 Update Request Body:', req.body);
     console.log('📦 Files:', req.files);
+
+    // Don't require all fields - only update what's provided
+    if (!title && !description && !price && !category && !location && !attributes && !status && (!req.files || req.files.length === 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one field is required to update'
+      });
+    }
 
     // Check if product exists and belongs to seller
     const result = await db.query(
@@ -373,7 +375,8 @@ exports.updateProduct = async (req, res) => {
       try {
         images = JSON.parse(existing_images);
       } catch (e) {
-        images = [];
+        console.error('Error parsing existing_images:', e);
+        images = product.images ? JSON.parse(product.images) : [];
       }
     } else {
       // If no existing_images provided, keep current images
@@ -402,42 +405,65 @@ exports.updateProduct = async (req, res) => {
       }
     }
 
-    // Build update query (without status column)
+    // Build update query dynamically
     const updateFields = [];
     const updateValues = [];
     let paramCounter = 1;
 
-    if (title !== undefined) {
+    if (title !== undefined && title !== product.name) {
       updateFields.push(`name = $${paramCounter++}`);
       updateValues.push(title);
     }
-    if (description !== undefined) {
+    if (description !== undefined && description !== product.description) {
       updateFields.push(`description = $${paramCounter++}`);
       updateValues.push(description);
     }
-    if (price !== undefined) {
+    if (price !== undefined && price !== product.price) {
       updateFields.push(`price = $${paramCounter++}`);
       updateValues.push(price);
     }
-    if (categoryId !== undefined) {
+    if (categoryId !== undefined && categoryId !== product.category_id) {
       updateFields.push(`category_id = $${paramCounter++}`);
       updateValues.push(categoryId);
     }
-    if (images !== undefined) {
+    if (images !== undefined && JSON.stringify(images) !== product.images) {
       updateFields.push(`images = $${paramCounter++}`);
       updateValues.push(JSON.stringify(images));
     }
-    if (location !== undefined) {
+    if (location !== undefined && location !== product.location) {
       updateFields.push(`location = $${paramCounter++}`);
       updateValues.push(location);
     }
-    if(attributes !== undefined){
+    if (attributes !== undefined) {
+      // Parse attributes if it's a string, otherwise use as is
+      let parsedAttributes = attributes;
+      if (typeof attributes === 'string') {
+        try {
+          parsedAttributes = JSON.parse(attributes);
+        } catch (e) {
+          console.error('Error parsing attributes:', e);
+          parsedAttributes = product.attributes ? JSON.parse(product.attributes) : {};
+        }
+      }
       updateFields.push(`attributes = $${paramCounter++}`);
-      updateFields.push(attributes);
+      updateValues.push(JSON.stringify(parsedAttributes));
+    }
+    if (status !== undefined && status !== product.status) {
+      updateFields.push(`status = $${paramCounter++}`);
+      updateValues.push(status);
     }
 
-    // Always update updated_at
-    updateFields.push(`created_at = NOW()`);
+    // Always update updated_at (not created_at!)
+    updateFields.push(`updated_at = NOW()`);
+
+    // If no fields to update, return early
+    if (updateFields.length === 1) { // Only updated_at
+      return res.status(200).json({
+        success: true,
+        message: "No changes detected",
+        product: product
+      });
+    }
 
     // Add WHERE clause values
     updateValues.push(id);
@@ -478,7 +504,6 @@ exports.updateProduct = async (req, res) => {
     });
   }
 };
-
 // Delete product controller (fixed)
 exports.deleteProduct = async (req, res) => {
   try {
