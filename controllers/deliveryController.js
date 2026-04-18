@@ -19,7 +19,7 @@ exports.getAvailableDeliveryCompanies = async (req, res) => {
     // Get all delivery companies
     const result = await db.query(
       `SELECT id, user_id, company_name, coverage_area, state, local_government, phone_number,
-              vehicle_type, description, status, created_at, delivery_type
+              vehicle_type, description, status, created_at, delivery_types
        FROM delivery_companies 
        WHERE user_id = $1
        ORDER BY created_at DESC`,
@@ -45,7 +45,7 @@ exports.getAvailableDeliveryCompanies = async (req, res) => {
         status: company.status,
         created_at: company.created_at,
         has_location: !!(company.latitude && company.longitude),
-        delivery_type: company.delivery_type
+        delivery_types: company.delivery_types
       };
     });
 
