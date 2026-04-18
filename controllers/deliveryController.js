@@ -357,3 +357,27 @@ exports.confirmDelivery = async (req, res) => {
   }
 };
 
+exports.getDeliveryCompanyById = async (req, res) => {
+  const {userId, companyName} = req.body;
+  try{
+    const data = await db.query(`SELECT * FROM delivery_companies
+      WHERE user_id = $1 AND company_name = $2`,[userId, companyName]);
+      if(data.rows){
+        return res.status(200).json({
+          success: true,
+          message:"Processed Successfully",
+          data: data.rows
+        });
+      }
+      res.status(500).json({
+      success: false,
+      message: "No data found",
+      data: null
+    });
+  }catch(e){
+    res.status(500).json({
+      success: false,
+      message: "An error has occured" + e
+    })
+  }
+}

@@ -8,6 +8,7 @@ router.get(
   authMiddleware,
   deliveryController.getAvailableDeliveryCompanies
 );
+router.post("/get-company-by-id", authMiddleware, deliveryController.getDeliveryCompanyById);
 router.post("/request", authMiddleware, deliveryController.requestDelivery);
 router.post("/confirm", authMiddleware, deliveryController.confirmDelivery);
 
