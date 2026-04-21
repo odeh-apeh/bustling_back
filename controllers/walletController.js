@@ -985,6 +985,11 @@ exports.confirmReceived = async (req, res) => {
       [orderId]
     );
 
+    await client.query(
+      "UPDATE orders SET status='completed' WHERE id=$1",
+      [orderId]
+    );
+
     await client.query('COMMIT');
     
     console.log('Funds released successfully for order:', orderId);
