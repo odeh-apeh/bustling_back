@@ -25,6 +25,7 @@ exports.createTicket = async (req, res) => {
                 email,
                 category
             }});
+                await db.query('INSERT INTO notifications (user_id, message) VALUES ($1, $2)', [userId, "Your ticket has been created and is pending review."]);
             
         res.status(201).json({ success: true, message: "Ticket created successfully", data: { ticketId: result.id } });
     }catch(e){

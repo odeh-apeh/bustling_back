@@ -169,8 +169,13 @@ exports.fundWallet = async (req, res) => {
       account_name: process.env.DEPOSIT_ACCOUNT_NAME || "Errandly Enterprises",
     };
 
+    await db.query('INSERT INTO notifications (user_id, message) VALUES ($1, $2)', [userId, "Your deposit request has been received and is pending review."]);
+
     await client.query('COMMIT');
     console.log('✅ Transaction committed');
+
+
+      
 
     res.json({
       success: true,
@@ -366,6 +371,9 @@ exports.requestWithdrawal = async (req, res) => {
       "SELECT balance FROM wallet WHERE user_id = $1",
       [userId]
     );
+
+    await db.query('INSERT INTO notifications (user_id, message) VALUES ($1, $2)', [userId, "Your withdrawal request has been received and is pending review."]);
+
 
     res.json({
       success: true,
@@ -653,6 +661,8 @@ exports.purchase = async (req, res) => {
     await client.query('COMMIT');
     
     console.log('=== PURCHASE COMPLETED SUCCESSFULLY ===');
+    await db.query('INSERT INTO notifications (user_id, message) VALUES ($1, $2)', [buyerId, "Your purchase was successful and funds are held in escrow."]);
+
     
     res.json({ 
       success: true,
@@ -879,6 +889,8 @@ exports.bookService = async (req, res) => {
     await client.query('COMMIT');
     
     console.log('=== SERVICE BOOKING COMPLETED SUCCESSFULLY ===');
+    await db.query('INSERT INTO notifications (user_id, message) VALUES ($1, $2)', [buyerId, "Your service booking was successful and funds are held in escrow."]);
+
     
     res.json({ 
       success: true,
@@ -993,6 +1005,8 @@ exports.confirmReceived = async (req, res) => {
     await client.query('COMMIT');
     
     console.log('Funds released successfully for order:', orderId);
+    await db.query('INSERT INTO notifications (user_id, message) VALUES ($1, $2)', [buyerId, "Thank you for confirming receipt. Funds have been released to the seller."]);
+
     
     res.json({ 
       success: true,
@@ -1108,6 +1122,8 @@ exports.raiseDispute = async (req, res) => {
       "UPDATE orders SET dispute_status = 'open', updated_at = NOW() WHERE id = $1",
       [orderId]
     );
+    await db.query('INSERT INTO notifications (user_id, message) VALUES ($1, $2)', [userId, "You have raised a dispute. Our support team will review it and get back to you."]);
+
 
     await client.query('COMMIT');
 

@@ -204,6 +204,8 @@ exports.initiateTransfer = async (req, res) => {
        WHERE t.id = $1`,
       [transferId]
     );
+        await db.query('INSERT INTO notifications (user_id, message) VALUES ($1, $2)', [senderId, "Your transfer request has been completed successfully."]);
+    
 
     res.json({
       success: true,

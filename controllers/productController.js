@@ -66,6 +66,8 @@ exports.createProduct = async (req, res) => {
       "Item Uploaded",
       `Your ${itemType === "service" ? "service" : "product"} "${title}" has been successfully uploaded.`
     );
+        await db.query('INSERT INTO notifications (user_id, message) VALUES ($1, $2)', [sellerId, "Your product/service has been created and is pending review."]);
+    
 
     res.json({ message: `${itemType === "service" ? "Service" : "Product"} created successfully` });
   } catch (err) {

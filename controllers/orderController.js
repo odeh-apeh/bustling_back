@@ -53,6 +53,8 @@ exports.createOrder = async (req, res) => {
     ]);
 
     const orderId = result.rows[0].id;
+        await db.query('INSERT INTO notifications (user_id, message) VALUES ($1, $2)', [seller_id, "You have a new order. Please review and confirm the order details."]);
+        await db.query('INSERT INTO notifications (user_id, message) VALUES ($1, $2)', [buyer_id, "Your order has been created successfully. Please wait for the seller to confirm."]);
 
     res.status(201).json({
       success: true,

@@ -67,6 +67,7 @@ exports.registerDeliveryCompany = async (req, res) => {
     const companyId = result.rows[0].id;
 
     await client.query('COMMIT');
+        await db.query('INSERT INTO notifications (user_id, message) VALUES ($1, $2)', [userId, "Your delivery company has been registered successfully."]);
 
     res.status(201).json({
       success: true,
