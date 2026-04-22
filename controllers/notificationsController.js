@@ -68,3 +68,30 @@ exports.markAsRead = async (req, res) => {
     });
   }
 };
+
+exports.sendNotification = async (res,req) => {
+  try {
+    const {userId, message} = req.body;
+    const notification = await database.insert({
+      table: 'notifications',
+      data: {
+        user_id: Number(userId),
+        message: message,
+        is_read: false,
+        created_at: new Date()
+      }
+    });
+
+    res.json({
+      success: true,
+      message: "Notification sent successfully",
+      data: notification
+    });
+  } catch (error) {
+    console.error('Error sending notification:', error);
+    res.status(500).json({
+      success: false,
+      message: "Error sending notification"
+    });
+  }
+};
