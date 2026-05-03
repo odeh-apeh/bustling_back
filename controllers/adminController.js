@@ -1098,6 +1098,7 @@ exports.resolveDispute = async (req, res) => {
         [dispute.escrow_id],
       );
     }
+    
     // case_dismissed - no money movement, just close dispute
 
     // Update dispute record
@@ -1450,6 +1451,8 @@ exports.releaseEscrow = async (req, res) => {
       "UPDATE escrow SET status = 'released', released_at = NOW() WHERE id = $1",
       [escrowId],
     );
+    await db.query('INSERT INTO notifications (user_id, message) VALUES ($1, $2)', [escrow.seller_id, "Your escrow has been successfully released."]);
+    
 
     await client.query("COMMIT");
     res.json({ message: "Escrow released to seller" });
@@ -1496,6 +1499,8 @@ exports.refundEscrow = async (req, res) => {
       "UPDATE escrow SET status = 'refunded', released_at = NOW() WHERE id = $1",
       [escrowId],
     );
+        await db.query('INSERT INTO notifications (user_id, message) VALUES ($1, $2)', [escrow.buyer_id, "Your escrow has been refunded successfully."]);
+    
 
     await client.query("COMMIT");
     res.json({ message: "Escrow refunded to buyer" });
@@ -2183,6 +2188,9 @@ exports.processDeposit = async (req, res) => {
       newBalance = walletRows.rows[0]?.balance;
     }
 
+    await db.query('INSERT INTO notifications (user_id, message) VALUES ($1, $2)', [deposit.user_id, "Your deposit has been approved successfully."]);
+    
+
     res.json({
       success: true,
       message: `Deposit ${action === "approve" ? "approved" : "rejected"} successfully`,
@@ -2379,6 +2387,8 @@ exports.processWithdrawal = async (req, res) => {
        WHERE id = $4`,
       [newStatus, notes || null, transaction_reference || null, withdrawal_id],
     );
+    await db.query('INSERT INTO notifications (user_id, message) VALUES ($1, $2)', [withdrawal.user_id, "Your withdrawal has been processed successfully"]);
+    
 
     await client.query("COMMIT");
 
